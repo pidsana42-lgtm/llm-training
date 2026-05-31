@@ -83,7 +83,7 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="models/jommarn_omni_206m_l40s_latest.pt")
-    parser.add_argument("--image", type=str, required=True, help="Path to test image")
+    parser.add_argument("--image", type=str, default=None, help="Path to test image (optional)")
     parser.add_argument("--prompt", type=str, default="รูปภาพนี้คือ", help="Thai prompt")
     
     args = parser.parse_args()
