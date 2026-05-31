@@ -16,10 +16,18 @@ model = Transformer(
     context_length=config['context_length'],
     vocab_size=config['vocab_size'],
     N_BLOCKS=config['n_blocks']
-).to(config['device'])
+)
+
+# Multi-GPU Support: Re-enabled for L40S Power
+if torch.cuda.device_count() > 1:
+    print(f"Using {torch.cuda.device_count()} GPUs for maximum acceleration!")
+    model = torch.nn.DataParallel(model)
+
+model = model.to(config['device'])
 
 # Print the total number of parameters
-total_params = sum(p.numel() for p in model.parameters())
+inner_model = model.module if hasattr(model, 'module') else model
+total_params = sum(p.numel() for p in inner_model.parameters())
 print(f"Total number of parameters in the model: {total_params:,}")
 
 # --- Optimizer Setup and Loss Tracking ---
