@@ -73,7 +73,20 @@ else:
 # --- Optimizer and Stability Tools ---
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=config['t_lr'])
-scaler = torch.amp.GradScaler('cuda') # DEFINED: Fixes the name 'scaler' is not defined error
+scaler = torch.amp.GradScaler('cuda')
+
+# Learning Rate Scheduler with Warmup
+def get_lr_scheduler(optimizer, warmup_steps, total_steps):
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        # Cosine decay
+        progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        return 0.5 * (1.0 + np.cos(np.pi * progress))
+    
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+scheduler = get_lr_scheduler(optimizer, warmup_steps=1000, total_steps=config['t_train_steps'])
 
 if not force_reset and os.path.exists(local_checkpoint_path):
     try:
