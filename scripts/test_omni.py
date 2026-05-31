@@ -72,12 +72,17 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
             # Append
             generated_ids = torch.cat((generated_ids, next_id), dim=1)
             
-            # Check for EOS (Early Stopping)
-            if next_id.item() == eos_token_id:
+            # Check for EOS (Early Stopping) - More robust check
+            next_token_text = tokenizer.decode(next_id.item())
+            if next_id.item() == eos_token_id or "<|endoftext|>" in next_token_text or "<unused" in next_token_text:
                 print("Jommarn-Omni finished speaking.")
                 break
         
     result = tokenizer.decode(generated_ids[0].tolist(), skip_special_tokens=True)
+    
+    # Post-process cleanup
+    result = result.replace("<|endoftext|>", "").strip()
+    # Remove any trailing junk or repeated ' คือ'
     print(f"\n--- Result ---\n{result}\n--------------")
 
 if __name__ == "__main__":
