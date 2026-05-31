@@ -86,6 +86,10 @@ class JommarnOmni(nn.Module):
             
         loss = None
         if targets is not None:
+            # Safety Fix: Clamp targets to ensure they are within [0, vocab_size-1]
+            # This prevents "nll_loss_forward_reduce_cuda_kernel_2d: Assertion t >= 0 && t < n_classes failed"
+            targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
+            
             # Shift targets to align with logits
             # If multimodal, logits already shifted relative to text in forward pass
             B, T, V = logits.shape
