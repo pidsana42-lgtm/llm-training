@@ -85,6 +85,10 @@ class JommarnOmni(nn.Module):
             
         loss = None
         if targets is not None:
+            # Safety Fix: Clamp targets to ensure they are within [0, vocab_size-1]
+            # This prevents "nll_loss_forward_reduce_cuda_kernel_2d: Assertion t >= 0 && t < n_classes failed"
+            targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
+            
             B, T, V = logits.shape
             loss = F.cross_entropy(logits.reshape(B * T, V), targets.reshape(B * T).long())
             
