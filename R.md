@@ -70,3 +70,6 @@ os.environ["HF_REPO_ID"] = "Phonsiri/Jommarn-AI"
 
 ---
 **ข้อแนะนำ:** จอมมารออมนิจะทำการสำรองความรู้ขึ้น Hugging Face ทุกๆ **100 Step** โปรดเปิดเน็ตไว้ให้จอมมารด้วยนะครับ! 😈🔥📸
+
+เทสส
+!export PYTHONPATH=$PYTHONPATH:/teamspace/studios/this_studio/llm-training && python /teamspace/studios/this_studio/llm-training/scripts/test_omni.py --model "/teamspace/studios/this_studio/llm-training/models/jommarn_omni_206m_l40s_latest.pt" --image "/teamspace/studios/this_studio/llm-training/config/test.jpeg" --prompt "ประเทศไทย"
