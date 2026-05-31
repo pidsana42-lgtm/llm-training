@@ -7,26 +7,33 @@ from src.models.mlp import MLP
 class PatchEmbedding(nn.Module):
     """
     Converts an image into a sequence of patches (Vision Tokens).
-    This is the first step for Jommarn-Tiny to "see".
+    This implementation avoids Conv2d to bypass cuDNN_STATUS_INTERNAL_ERROR 
+    on some GPU environments (like Kaggle T4 Multi-GPU).
     """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, n_embed=192):
         super().__init__()
         self.patch_size = patch_size
         self.n_patches = (img_size // patch_size) ** 2
         
-        # Use a convolution to create patches and project to n_embed dimension
-        self.proj = nn.Conv2d(
-            in_chans, n_embed, 
-            kernel_size=patch_size, 
-            stride=patch_size
-        )
+        # Non-convolutional patch embedding:
+        # 1. Flatten patches into vectors
+        # 2. Project vectors to n_embed
+        self.proj = nn.Linear(in_chans * patch_size * patch_size, n_embed, bias=False)
 
     def forward(self, x):
         # x: (B, C, H, W)
-        x = self.proj(x) # (B, n_embed, H/P, W/P)
-        x = x.flatten(2) # (B, n_embed, n_patches)
-        x = x.transpose(1, 2) # (B, n_patches, n_embed)
-        return x
+        B, C, H, W = x.shape
+        P = self.patch_size
+        
+        # Reshape into patches: (B, C, H//P, P, W//P, P)
+        x = x.view(B, C, H // P, P, W // P, P)
+        # Permute to bring patch pixels together: (B, H//P, W//P, P, P, C)
+        x = x.permute(0, 2, 4, 3, 5, 1).contiguous()
+        # Flatten into sequence of patches: (B, n_patches, P*P*C)
+        x = x.view(B, -1, P * P * C)
+        
+        # Project to embedding dimension
+        return self.proj(x) # (B, n_patches, n_embed)
 
 class VisionBlock(nn.Module):
     """
@@ -41,7 +48,7 @@ class VisionBlock(nn.Module):
         self.mlp = MLP(n_embed)
 
     def forward(self, x):
-        # Simple Global Attention for the Vision Encoder
+        # Global Attention for the Vision Encoder
         attn_out, _ = self.attn(self.ln1(x), self.ln1(x), self.ln1(x))
         x = x + attn_out
         x = x + self.mlp(self.ln2(x))
