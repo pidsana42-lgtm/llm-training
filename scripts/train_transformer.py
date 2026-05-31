@@ -16,19 +16,10 @@ model = Transformer(
     context_length=config['context_length'],
     vocab_size=config['vocab_size'],
     N_BLOCKS=config['n_blocks']
-)
-
-# Multi-GPU Support: Wrap model in DataParallel if more than 1 GPU is available
-if torch.cuda.device_count() > 1:
-    print(f"Using {torch.cuda.device_count()} GPUs for training!")
-    model = torch.nn.DataParallel(model)
-
-model = model.to(config['device'])
+).to(config['device'])
 
 # Print the total number of parameters
-# For DataParallel, we access the underlying model via .module
-inner_model = model.module if hasattr(model, 'module') else model
-total_params = sum(p.numel() for p in inner_model.parameters())
+total_params = sum(p.numel() for p in model.parameters())
 print(f"Total number of parameters in the model: {total_params:,}")
 
 # --- Optimizer Setup and Loss Tracking ---
