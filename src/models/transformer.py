@@ -52,6 +52,10 @@ class JommarnOmni(nn.Module):
     def forward(self, idx: torch.Tensor, images: torch.Tensor = None, targets: torch.Tensor = None):
         B, T = idx.shape
         
+        # Safety Fix: Clamp tokens to ensure they are within [0, vocab_size-1]
+        # This prevents "index out of bounds" errors if the tokenizer/dataset has unexpected tokens.
+        idx = torch.clamp(idx, 0, self.token_embed.num_embeddings - 1)
+        
         # Text Embeddings
         x = self.token_embed(idx)
         
