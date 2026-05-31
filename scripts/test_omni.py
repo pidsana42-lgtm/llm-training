@@ -38,15 +38,19 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
     model.to(device)
     model.eval()
 
-    # 3. Process Image
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    image = Image.open(image_path).convert('RGB')
-    image_tensor = transform(image).unsqueeze(0).to(device) # (1, 3, 224, 224)
+    # 3. Process Image (Optional)
+    image_tensor = None
+    if image_path and os.path.exists(image_path):
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        image = Image.open(image_path).convert('RGB')
+        image_tensor = transform(image).unsqueeze(0).to(device) # (1, 3, 224, 224)
+        print(f"Vision Mode: Image '{image_path}' attached.")
+    else:
+        print("Text-Only Mode: No image attached.")
 
     # 4. Process Text
     input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).unsqueeze(0)
