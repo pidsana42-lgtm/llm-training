@@ -19,7 +19,14 @@ class JommarnMasterDataset(Dataset):
     """
     def __init__(self, tokenizer_path="tokenizer.json", img_size=224, mode="multimodal"):
         self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tokenizer_path)
-        self.tokenizer.pad_token = "<|pad|>"
+        
+        # Gemma tokenizer usually doesn't have a default pad token set in the json
+        # We set it to <|pad|> or <|endoftext|> to avoid TypeError during batching
+        if "<|pad|>" in self.tokenizer.get_vocab():
+            self.tokenizer.pad_token = "<|pad|>"
+        else:
+            self.tokenizer.add_special_tokens({'pad_token': '<|pad|>'})
+            
         self.img_size = img_size
         self.mode = mode # 'multimodal' or 'text_only'
         
