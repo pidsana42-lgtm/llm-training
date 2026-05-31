@@ -104,3 +104,13 @@ torch.save(
     config['t_out_path']
 )
 print(f"Saved final model to {config['t_out_path']}")
+
+# --- Automatic Push to Hugging Face (Optional) ---
+hf_repo = os.getenv("HF_REPO_ID")
+if hf_repo:
+    print(f"\nAttempting to push model to Hugging Face: {hf_repo}")
+    try:
+        from scripts.push_to_hf import push_to_hub
+        push_to_hub(repo_id=hf_repo, model_path=config['t_out_path'])
+    except Exception as e:
+        print(f"Failed to push to HF: {e}")
