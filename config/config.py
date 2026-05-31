@@ -16,10 +16,10 @@ TRAIN_PATH = "data/train/pile_train.h5"
 DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
-# Training parameters (Optimized for L40S 48GB - God Mode)
-T_BATCH_SIZE = 128          # ขยับขึ้นเป็น 128 เพื่อความเร็วสูงสุดบน L40S
-T_CONTEXT_LENGTH = 1024     # ขยายหน้าต่างการเรียนรู้เป็น 1024 เต็มพิกัด
-T_TRAIN_STEPS = 50000       # 50,000 ก้าวที่ทรงพลัง
+# Training parameters (Optimized for L40S 48GB - Stable God Mode)
+T_BATCH_SIZE = 32           # ปรับลดลงมาที่ 32 เพื่อให้มั่นใจว่ารันได้แน่นอน (สามารถขยับขึ้นได้ถ้าใช้ AMP)
+T_CONTEXT_LENGTH = 1024     # คงความยาวไว้ที่ 1024 เพื่อประสิทธิภาพภาษา
+T_TRAIN_STEPS = 100000      # ขยาย Step เพิ่มขึ้นเพราะ Batch เล็กลง
 T_EVAL_STEPS = 500         
 T_EVAL_ITERS = 100         
 T_LR_DECAY_STEP = 20000    
