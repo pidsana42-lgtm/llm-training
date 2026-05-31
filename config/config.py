@@ -16,16 +16,16 @@ TRAIN_PATH = "data/train/pile_train.h5"
 DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
-# Training parameters (Optimized for T4 x 2 / 32GB)
-T_BATCH_SIZE = 16           # ปรับสมดุลระหว่างขนาด Vocab ที่ใหญ่ขึ้น
-T_CONTEXT_LENGTH = 512      
-T_TRAIN_STEPS = 100000     
+# Training parameters (Optimized for L40S 48GB)
+T_BATCH_SIZE = 128          # ขยับขึ้นเป็น 128 เพื่อความเร็วสูงสุดบน L40S
+T_CONTEXT_LENGTH = 1024     # ขยายหน้าต่างการเรียนรู้เป็น 1024 เต็มพิกัด
+T_TRAIN_STEPS = 50000       # ลด Step ลงเพราะ Batch ใหญ่ขึ้น (เรียนรู้เร็วขึ้น)
 T_EVAL_STEPS = 500         
 T_EVAL_ITERS = 100         
-T_LR_DECAY_STEP = 30000    
-T_LR = 3e-4                 # ลด LR ลงเล็กน้อยเพื่อความเสถียรของ Vocab ขนาดใหญ่
-T_LR_DECAYED = 3e-5        
-T_OUT_PATH = "models/jommarn_omni_231m_thai.pt"
+T_LR_DECAY_STEP = 20000    
+T_LR = 4e-4                 
+T_LR_DECAYED = 4e-5        
+T_OUT_PATH = "models/jommarn_omni_206m_l40s.pt"
 
 # Device
 import torch

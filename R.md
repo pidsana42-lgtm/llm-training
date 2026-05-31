@@ -1,77 +1,72 @@
-# สรุปสถาปัตยกรรม "Jommarn-Omni" (Multimodal Evolution)
+# สรุปสถาปัตยกรรม "Jommarn-Omni 203M" (Multimodal Evolution)
 
-จากการปรับปรุงล่าสุด **Jommarn-Tiny** ได้วิวัฒนาการสู่ **Jommarn-Omni** ซึ่งเป็นโมเดลแบบ **Native Multimodal** ที่สามารถประมวลผลได้ทั้ง **ข้อความ (Text)** และ **รูปภาพ (Vision)** ในสถาปัตยกรรมเดียว โดยที่ยังคงความเบาในระดับ 16.5 ล้านพารามิเตอร์
+จากการปรับปรุงล่าสุด **Jommarn-Tiny** ได้วิวัฒนาการสู่ **Jommarn-Omni** ซึ่งเป็นโมเดลแบบ **Native Multimodal** ที่ทรงพลังที่สุดในขนาดกระทัดรัด โดยมีพารามิเตอร์รวมอยู่ที่ **203 ล้านพารามิเตอร์** ออกแบบมาเพื่อประมวลผลทั้ง **ข้อความ (Text)** และ **รูปภาพ (Vision)** โดยเน้นภาษาไทยเป็นพิเศษ
 
 ## 1. องค์ประกอบใหม่: Jommarn-Vision Encoder
-เราได้เพิ่ม **Vision Encoder ที่สร้างขึ้นเองจากศูนย์ (Train from Scratch)** เพื่อให้เข้ากับปรัชญาความเบาของโมเดล:
-*   **Patch Embedding:** หั่นรูปภาพขนาด 224x224 ให้เป็นชิ้นเล็กๆ (Patches) เพื่อแปลงเป็น Vision Tokens
-*   **Vision Transformer Blocks:** ใช้ 3 เลเยอร์พิเศษที่มี RMSNorm และ SwiGLU แบบเดียวกับตัว Thinker เพื่อให้ข้อมูลภาพมีความหนาแน่นทางปัญญาสูง
-*   **Parameter Efficiency:** ส่วน Vision นี้เพิ่มพารามิเตอร์เพียงประมาณ 3.3 ล้านพารามิเตอร์เท่านั้น
+เราได้เพิ่ม **Vision Encoder ที่สร้างขึ้นเองจากศูนย์ (Train from Scratch)** เพื่อรักษาความเบาและประสิทธิภาพ:
+*   **Patch Embedding:** หั่นรูปภาพขนาด 224x224 ให้เป็น 196 tokens (Vision Tokens)
+*   **Intelligence Density:** ใช้ 3 เลเยอร์พิเศษที่มี RMSNorm และ SwiGLU เพื่อให้ข้อมูลภาพมีความหนาแน่นทางปัญญาสูงก่อนส่งต่อให้ตัว Thinker
 
-## 2. การทำงานแบบ Native Multimodal (Omni Architecture)
-โมเดลไม่ได้แค่อ่านภาพแยกกัน แต่ใช้เทคนิค **Late Fusion (Prefix-tuning)**:
-*   **Vision Tokens:** รูปภาพหนึ่งรูปจะถูกแปลงเป็น 196 tokens และถูกนำไปวางไว้หน้าข้อความ
-*   **Thinker (Jommarn-Tiny):** ทำหน้าที่เป็นสมองส่วนกลาง ประมวลผลทั้งภาพและข้อความพร้อมกันใน **Hybrid Attention Layers**
-    *   **Global Attention:** ช่วยให้ข้อความสามารถ "มองเห็น" และทำความเข้าใจรายละเอียดของรูปภาพที่อยู่ส่วนต้นของลำดับได้อย่างแม่นยำ
-    *   **p-RoPE:** ปรับแต่งให้รองรับลำดับที่ยาวขึ้นจากการรวมภาพและข้อความเข้าด้วยกัน
+## 2. ภาษาไทยระดับเทพ: Gemma-4 Tokenizer
+เราได้อัปเกรด "พจนานุกรม" ของโมเดลให้เป็นระดับโลก:
+*   **Gemma-4 Powered:** ใช้ Tokenizer จากโมเดล Gemma-4 ของ Google ซึ่งตัดคำภาษาไทยได้คมชัดและมีประสิทธิภาพสูงสุด
+*   **Vocab Size:** 256,128 คำ (ช่วยลดปัญหา Token ภาษาไทยแตกกระจาย)
 
-## 3. ข้อมูลเชิงเทคนิค (Technical Specifications)
-*   **Total Parameters:** ~16.5 ล้านพารามิเตอร์
-*   **Architecture:** Hybrid Decoder-only Transformer + ViT Encoder
-*   **Capabilities:** 
-    *   Text Generation (สร้างข้อความ)
-    *   Image Captioning (บรรยายรูปภาพ)
-    *   Visual Question Answering (ตอบคำถามจากภาพ - ต้องฝึกฝนเพิ่มเติม)
+## 3. การทำงานแบบ Native Multimodal (Omni Architecture)
+โมเดลประมวลผลภาพและข้อความใน "สมองเดียว":
+*   **Hybrid Attention Schedule:** สลับเลเยอร์แบบ `Local (512 tokens) -> Global (1024 tokens)` เพื่อให้โมเดลจดจำรายละเอียดใกล้เคียงและเชื่อมโยงภาพรวมได้พร้อมกัน
+*   **Weight Tying:** แชร์น้ำหนักระหว่าง Embedding และ Output Head ช่วยประหยัดพื้นที่ไปกว่า 131 ล้านพารามิเตอร์ แต่คงความฉลาดเท่าเดิม
 
-## 4. ทำไม Jommarn-Omni ถึงพิเศษ?
-การมี Vision Encoder ที่สร้างจาก Scratch ทำให้ Jommarn-Omni เป็น **"เนื้อเดียวกัน"** ทั้งระบบ ไม่มีการพึ่งพาโมเดลภายนอกที่หนักเกินไป ทำให้มันเป็นหนึ่งในโมเดล Multimodal ที่เล็กและทรงพลังที่สุด สามารถรันแบบ Real-time บนอุปกรณ์พกพาได้อย่างแท้จริง
+## 4. ข้อมูลเชิงเทคนิค (Technical Specifications)
+*   **Total Parameters:** ~203 ล้านพารามิเตอร์
+*   **N_EMBED (มิติการเรียนรู้):** 512
+*   **N_BLOCKS (ความลึก):** 14 เลเยอร์
+*   **Context Length:** 1,024 Tokens
+*   **Training Speed:** ปรับแต่งมาเพื่อรันบน **Kaggle GPU T4 x 2** ได้อย่างสมบูรณ์แบบ
 
 ---
 *วิวัฒนาการโดย Gemini CLI - Jommarn-Omni Engine*
 
 ## คู่มือการรัน Jommarn-Omni บน Cloud (Kaggle/Colab)
 
-เพื่อให้การฝึกฝนจอมมารออมนิขนาด 203M เป็นไปอย่างราบรื่นบนขุมพลัง **GPU T4 x 2** ให้ปฏิบัติตามขั้นตอนดังนี้:
-
 ### 1. การเตรียมสภาพแวดล้อม (Environment Setup)
-ติดตั้งไลบรารีที่จำเป็นในเซลล์แรกของ Notebook:
 ```python
-!pip install -q huggingface_hub transformers torchvision pillow tqdm h5py
+!pip install -q huggingface_hub transformers torchvision pillow tqdm h5py datasets
 ```
 
-### 2. การดึง Tokenizer ของ Gemma-4
-เนื่องจากเราใช้ภาษาของ Gemma คุณต้องยืนยันตัวตนกับ Hugging Face ก่อน:
+### 2. การดึง Tokenizer และ Dataset
+ยืนยันตัวตนกับ Hugging Face เพื่อดึงพจนานุกรม Gemma-4:
 ```python
 from huggingface_hub import login
-login("YOUR_HUGGINGFACE_TOKEN") # นำ Token มาจากหน้า Settings ใน Hugging Face
+login("YOUR_HUGGINGFACE_TOKEN")
 
-# รันสคริปต์ดาวน์โหลดที่เตรียมไว้
+# ดาวน์โหลด Tokenizer
 !python scripts/download_tokenizer.py
 ```
 
-### 3. การเตรียมข้อมูล (Dataset)
-*   **Text Data:** สามารถใช้สคริปต์ `scripts/data_preprocess.py` เพื่อเตรียมข้อมูล Wikipedia เป็น HDF5
-*   **Vision Data:** แนะนำให้ใช้ **COCO Dataset** ที่มีอยู่แล้วบน Kaggle โดยกดปุ่ม "Add Data" และเลือก `coco-2017-dataset`
+### 3. การใช้งาน Master Data Loader (Wiki + Handwriting + OCR)
+เราได้เตรียมระบบรวมข้อมูลจาก 3 แหล่งสำคัญไว้ในไฟล์เดียว:
+*   **Thai Wiki v3:** ฐานความรู้ภาษาไทย
+*   **Thai Handwriting:** ระบบอ่านลายมือไทย
+*   **Appen Thai Document OCR:** ระบบอ่านเอกสารราชการและธุรกิจ
 
-### 4. การตั้งค่าก่อนเริ่มเทรน (Config Check)
-ตรวจสอบไฟล์ `config/config.py` ว่าตรงกับความต้องการ:
-*   `VOCAB_SIZE`: 256128
-*   `N_EMBED`: 512
-*   `N_BLOCKS`: 14
-*   `DEVICE`: 'cuda'
+เรียกใช้งานในสคริปต์เทรนของคุณ:
+```python
+from scripts.master_data_loader import get_master_loader
+train_loader = get_master_loader(batch_size=32)
+```
 
-### 5. เริ่มต้นการฝึกฝน (Training)
-รันคำสั่งเพื่อเริ่มกระบวนการเรียนรู้:
+### 4. เริ่มต้นการฝึกฝน (Training)
 ```python
 !python scripts/train_transformer.py
 ```
-*ระบบจะเริ่มบันทึกโมเดลไว้ในโฟลเดอร์ `models/jommarn_omni_231m_thai.pt` เมื่อเสร็จสิ้น*
+*โมเดลจะถูกบันทึกไว้ใน `models/jommarn_omni_231m_thai.pt` (ขนาดไฟล์จริงประมาณ 800MB - 1GB)*
 
-### 6. การทดสอบการมองเห็น (Inference)
-หลังจากเทรนเสร็จ สามารถทดสอบให้จอมมารบรรยายภาพได้ด้วย:
+### 5. การทดสอบ (Inference)
+ทดสอบให้จอมมารอ่านลายมือหรือเอกสาร:
 ```python
-!python scripts/generate_text.py --model_path models/jommarn_omni_231m_thai.pt --input_text "This image shows"
+!python scripts/generate_text.py --model_path models/jommarn_omni_231m_thai.pt --input_text "รูปภาพนี้คือเอกสารที่เขียนว่า"
 ```
 
 ---
-**ข้อแนะนำ:** สำหรับการรันบน Kaggle T4 x 2 แนะนำให้เปิดใช้งาน **Accelerator: GPU T4 x2** ในเมนู Settings ด้านขวามือเพื่อให้การเทรนเร็วขึ้นเป็น 2 เท่า!
+**ข้อแนะนำพิเศษ:** สำหรับ Kaggle อย่าลืมเปิดปุ่ม **Accelerator: GPU T4 x2** และตั้งค่า **Internet: On** ในเมนูขวามือครับ!
