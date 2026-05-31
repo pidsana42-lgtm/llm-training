@@ -5,7 +5,7 @@
 
 # ตัวเลข VOCAB_SIZE ของ Gemma ปกติคือ 256,000 
 # เราจะตั้งค่าเผื่อให้หารด้วย 64 ลงตัวเพื่อประสิทธิภาพ GPU (256000 + padding)
-VOCAB_SIZE = 256128         
+VOCAB_SIZE = 262144         # ตัวเลขจริงจาก tokenizer.json ของ Gemma-4 (2^18)
 CONTEXT_LENGTH = 1024       
 N_EMBED = 512               
 N_HEAD = 8                  
