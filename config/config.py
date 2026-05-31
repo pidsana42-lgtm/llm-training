@@ -1,31 +1,36 @@
-# --- Configuration ---
+# --- Jommarn-Omni 231M (Gemma-4 Powered) Configuration ---
 
-# Define vocabulary size and transformer configuration (3 Billion)
-VOCAB_SIZE = 50304          # Number of unique tokens in the vocabulary
-CONTEXT_LENGTH = 512        # Maximum sequence length for the model
-N_EMBED = 2048              # Dimension of the embedding space
-N_HEAD = 16                 # Number of attention heads in each transformer block
-N_BLOCKS = 64               # Number of transformer blocks in the model
+# เป้าหมายพารามิเตอร์: ~231 Million
+# จุดเด่น: ใช้ Tokenizer ของ Gemma-4 เพื่อการรองรับภาษาไทยระดับเทพ
 
-# Paths to training and development datasets
-TRAIN_PATH = "data/train/pile_train.h5"  # File path for the training dataset
-DEV_PATH = "data/val/pile_dev.h5"      # File path for the validation dataset
+# ตัวเลข VOCAB_SIZE ของ Gemma ปกติคือ 256,000 
+# เราจะตั้งค่าเผื่อให้หารด้วย 64 ลงตัวเพื่อประสิทธิภาพ GPU (256000 + padding)
+VOCAB_SIZE = 256128         
+CONTEXT_LENGTH = 1024       
+N_EMBED = 512               
+N_HEAD = 8                  
+N_BLOCKS = 14               
 
-# Transformer training parameters
-T_BATCH_SIZE = 32          # Number of samples per training batch
-T_CONTEXT_LENGTH = 16      # Context length for training batches
-T_TRAIN_STEPS = 200000     # Total number of training steps
-T_EVAL_STEPS = 1000        # Frequency (in steps) to perform evaluation
-T_EVAL_ITERS = 250         # Number of iterations to evaluate the model
-T_LR_DECAY_STEP = 50000    # Step at which to decay the learning rate
-T_LR = 5e-4                # Initial learning rate for training
-T_LR_DECAYED = 5e-5        # Learning rate after decay
-T_OUT_PATH = "models/transformer_B.pt"  # Path to save the trained model
+# Paths
+TRAIN_PATH = "data/train/pile_train.h5"
+DEV_PATH = "data/val/pile_dev.h5"
+TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
-# Device configuration
-DEVICE = 'cuda'
+# Training parameters (Optimized for T4 x 2 / 32GB)
+T_BATCH_SIZE = 16           # ปรับสมดุลระหว่างขนาด Vocab ที่ใหญ่ขึ้น
+T_CONTEXT_LENGTH = 512      
+T_TRAIN_STEPS = 100000     
+T_EVAL_STEPS = 500         
+T_EVAL_ITERS = 100         
+T_LR_DECAY_STEP = 30000    
+T_LR = 3e-4                 # ลด LR ลงเล็กน้อยเพื่อความเสถียรของ Vocab ขนาดใหญ่
+T_LR_DECAYED = 3e-5        
+T_OUT_PATH = "models/jommarn_omni_231m_thai.pt"
 
-# Store all configurations in a dictionary for easy access and modification
+# Device
+import torch
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 default_config = {
     'vocab_size': VOCAB_SIZE,
     'context_length': CONTEXT_LENGTH,
@@ -34,6 +39,7 @@ default_config = {
     'n_blocks': N_BLOCKS,
     'train_path': TRAIN_PATH,
     'dev_path': DEV_PATH,
+    'tokenizer_path': TOKENIZER_PATH,
     't_batch_size': T_BATCH_SIZE,
     't_context_length': T_CONTEXT_LENGTH,
     't_train_steps': T_TRAIN_STEPS,
@@ -41,7 +47,7 @@ default_config = {
     't_eval_iters': T_EVAL_ITERS,
     't_lr_decay_step': T_LR_DECAY_STEP,
     't_lr': T_LR,
-    't_lr_decayed': T_LR_DECAYED,
+    't_lr_decayed': T_LR_DECAY_STEP,
     't_out_path': T_OUT_PATH,
     'device': DEVICE,
 }

@@ -3,108 +3,108 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-class Head(nn.Module):
+def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     """
-    A single attention head.
-
-    This module calculates attention scores and applies them to the values.
-    It includes key, query, and value projections, and uses causal masking
-    to prevent attending to future tokens.
-
-    Args:
-        head_size (int): The dimensionality of the key, query, and value projections.
-        n_embed (int): The dimensionality of the input embedding.
-        context_length (int): The maximum length of the input sequence, used for causal masking.
+    Applies Partial Rotary Positional Embedding (p-RoPE) to a tensor.
+    Rotates only the first half of the dimensions in each head.
     """
-    def __init__(self, head_size: int, n_embed: int, context_length: int) -> None:
-        """
-        Initializes the attention head.
+    B, T, H, D = x.shape
+    d_rope = D // 2 # Partial RoPE: rotate only half
+    x_rope = x[..., :d_rope]
+    x_pass = x[..., d_rope:]
 
-        Args:
-            head_size (int): The dimensionality of the key, query, and value projections.
-            n_embed (int): The dimensionality of the input embedding.
-            context_length (int): The maximum length of the input sequence.
-        """
-        super().__init__()
-        self.key = nn.Linear(n_embed, head_size, bias=False)   # Key projection
-        self.query = nn.Linear(n_embed, head_size, bias=False) # Query projection
-        self.value = nn.Linear(n_embed, head_size, bias=False) # Value projection
-        # Lower triangular matrix for causal masking
-        self.register_buffer('tril', torch.tril(torch.ones(context_length, context_length)))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the attention head.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, T, C).
-
-        Returns:
-            torch.Tensor: Output tensor after applying attention.
-        """
-        B, T, C = x.shape
-        k = self.key(x)     # (B, T, head_size)
-        q = self.query(x)   # (B, T, head_size)
-        scale_factor = 1 / math.sqrt(C)
-        # Calculate attention weights: (B, T, head_size) @ (B, head_size, T) -> (B, T, T)
-        attn_weights = q @ k.transpose(-2, -1) * scale_factor
-        # Apply causal masking
-        attn_weights = attn_weights.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        v = self.value(x)   # (B, T, head_size)
-        # Apply attention weights to values
-        out = attn_weights @ v # (B, T, T) @ (B, T, head_size) -> (B, T, head_size)
-        return out
+    # RoPE rotation: [x1, x2, x3, x4] -> [-x2, x1, -x4, x3]
+    x_rope_left = x_rope[..., 0::2]
+    x_rope_right = x_rope[..., 1::2]
+    
+    # [B, T, H, d_rope//2] * [1, T, 1, d_rope//2]
+    cos = cos[:T, :d_rope//2].unsqueeze(0).unsqueeze(2)
+    sin = sin[:T, :d_rope//2].unsqueeze(0).unsqueeze(2)
+    
+    rotated_left = x_rope_left * cos - x_rope_right * sin
+    rotated_right = x_rope_left * sin + x_rope_right * cos
+    
+    # Recombine
+    x_rope = torch.stack([rotated_left, rotated_right], dim=-1).flatten(-2)
+    return torch.cat([x_rope, x_pass], dim=-1)
 
 class MultiHeadAttention(nn.Module):
     """
-    Multi-Head Attention module.
-
-    This module combines multiple attention heads in parallel. The outputs of each head
-    are concatenated to form the final output.
-
-    Args:
-        n_head (int): The number of parallel attention heads.
-        n_embed (int): The dimensionality of the input embedding.
-        context_length (int): The maximum length of the input sequence.
+    Jommarn-Tiny Multi-Head Attention.
+    
+    Implements:
+    1. Partial RoPE for enhanced spatial awareness.
+    2. Hybrid Attention (Sliding Window or Global).
+    3. Optimized vectorized computation (no more looping over heads).
     """
     def __init__(self, n_head: int, n_embed: int, context_length: int) -> None:
-        """
-        Initializes the multi-head attention module.
-
-        Args:
-            n_head (int): The number of parallel attention heads.
-            n_embed (int): The dimensionality of the input embedding.
-            context_length (int): The maximum length of the input sequence.
-        """
         super().__init__()
-        self.heads = nn.ModuleList([Head(n_embed // n_head, n_embed, context_length) for _ in range(n_head)])
+        assert n_embed % n_head == 0
+        self.n_head = n_head
+        self.head_size = n_embed // n_head
+        self.context_length = context_length
+        self.window_size = context_length // 2 # Default sliding window size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the multi-head attention.
+        # Key, Query, Value projections in one go
+        self.qkv_proj = nn.Linear(n_embed, 3 * n_embed, bias=False)
+        self.out_proj = nn.Linear(n_embed, n_embed, bias=False)
+        
+        # Causal mask buffer
+        self.register_buffer('tril', torch.tril(torch.ones(context_length, context_length)))
 
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, T, C).
-
-        Returns:
-            torch.Tensor: Output tensor after concatenating the outputs of all heads.
-        """
-        # Concatenate the output of each head along the last dimension (C)
-        x = torch.cat([h(x) for h in self.heads], dim=-1)
-        return x
+    def forward(self, x: torch.Tensor, is_local: bool = False, rope_cos: torch.Tensor = None, rope_sin: torch.Tensor = None) -> torch.Tensor:
+        B, T, C = x.shape
+        
+        # QKV Projection
+        qkv = self.qkv_proj(x) # (B, T, 3*C)
+        q, k, v = qkv.split(C, dim=-1)
+        
+        # Reshape for multi-head: (B, T, H, D)
+        q = q.view(B, T, self.n_head, self.head_size)
+        k = k.view(B, T, self.n_head, self.head_size)
+        v = v.view(B, T, self.n_head, self.head_size)
+        
+        # Apply p-RoPE
+        if rope_cos is not None and rope_sin is not None:
+            q = apply_rope(q, rope_cos, rope_sin)
+            k = apply_rope(k, rope_cos, rope_sin)
+            
+        # Transpose for attention: (B, H, T, D)
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+        
+        # Scaled Dot-Product Attention
+        # (B, H, T, D) @ (B, H, D, T) -> (B, H, T, T)
+        attn_weights = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_size))
+        
+        # Masking logic
+        mask = self.tril[:T, :T]
+        if is_local:
+            # Sliding Window: only look back 'window_size' steps
+            local_mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=-self.window_size)
+            mask = mask * local_mask
+            
+        attn_weights = attn_weights.masked_fill(mask == 0, float('-inf'))
+        attn_weights = F.softmax(attn_weights, dim=-1)
+        
+        # (B, H, T, T) @ (B, H, T, D) -> (B, H, T, D)
+        out = attn_weights @ v
+        
+        # Reshape back: (B, T, C)
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
+        return self.out_proj(out)
 
 if __name__ == '__main__':
-    # Example Usage (optional, for testing the module independently)
-    batch_size = 2
-    sequence_length = 5
-    embedding_dim = 32
-    num_heads = 4
-    context_len = 5
-    input_tensor = torch.randn(batch_size, sequence_length, embedding_dim)
-
-    multihead_attn = MultiHeadAttention(n_head=num_heads, n_embed=embedding_dim, context_length=context_len)
-    output_tensor = multihead_attn(input_tensor)
-
-    print("MultiHeadAttention Input Shape:", input_tensor.shape)
-    print("MultiHeadAttention Output Shape:", output_tensor.shape)
+    # Example Usage
+    B, T, C = 2, 8, 32
+    H = 4
+    mha = MultiHeadAttention(n_head=H, n_embed=C, context_length=T)
+    x = torch.randn(B, T, C)
+    
+    # Mock RoPE
+    cos = torch.cos(torch.randn(T, (C//H)//4))
+    sin = torch.sin(torch.randn(T, (C//H)//4))
+    
+    out = mha(x, is_local=True, rope_cos=cos, rope_sin=sin)
+    print("MHA Output Shape:", out.shape)
