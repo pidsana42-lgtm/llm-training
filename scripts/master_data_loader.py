@@ -96,19 +96,32 @@ class AppenOCRSource(JommarnMasterDataset):
 
 def get_master_loader(batch_size=16):
     """
-    Creates a combined loader that samples from all sources.
+    Creates a combined loader that samples from all sources in a BALANCED way.
+    Ensures that Vision data appears as frequently as Text data, despite dataset size differences.
     """
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
-    # ds_appen = AppenOCRSource() # Enable when running on Kaggle with the data added
     
     # Combined dataset
     master_ds = ConcatDataset([ds_hw, ds_wiki])
     
+    # Calculate weights for balancing (Minority class gets higher weight)
+    num_hw = len(ds_hw)
+    num_wiki = len(ds_wiki)
+    total = num_hw + num_wiki
+    
+    # Weights for each sample in the concatenated dataset
+    # We want 50% chance for HW and 50% for Wiki
+    weights = [total / num_hw] * num_hw + [total / num_wiki] * num_wiki
+    sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
+    
+    print(f"Balanced Sampler Active: Handwriting ({num_hw}) vs Wiki ({num_wiki})")
+    print(f"Sampling Ratio: 1 Vision task for every 1 Text task (approx)")
+
     return DataLoader(
         master_ds, 
         batch_size=batch_size, 
-        shuffle=True, 
+        sampler=sampler, # Using the new balanced sampler
         num_workers=2,
         pin_memory=True
     )
