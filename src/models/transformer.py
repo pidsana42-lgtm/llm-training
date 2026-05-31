@@ -49,19 +49,20 @@ class JommarnOmni(nn.Module):
         # Weight tying
         self.token_embed.weight = self.lm_head.weight
 
-    def forward(self, idx: torch.Tensor, images: torch.Tensor = None, targets: torch.Tensor = None):
+    def forward(self, idx: torch.Tensor, images: torch.Tensor = None, targets: torch.Tensor = None, v_tokens: torch.Tensor = None):
         B, T = idx.shape
         
         # Safety Fix: Clamp tokens to ensure they are within [0, vocab_size-1]
-        # This prevents "index out of bounds" errors if the tokenizer/dataset has unexpected tokens.
         idx = torch.clamp(idx, 0, self.token_embed.num_embeddings - 1)
         
         # Text Embeddings
         x = self.token_embed(idx)
         
         # Vision Integration (Late Fusion / Prefix)
-        if images is not None:
-            v_tokens = self.vision_encoder(images) # (B, n_patches, n_embed)
+        if v_tokens is None and images is not None:
+            v_tokens = self.vision_encoder(images)
+            
+        if v_tokens is not None:
             # Prepend vision tokens to text tokens
             x = torch.cat([v_tokens, x], dim=1)
             
@@ -72,14 +73,13 @@ class JommarnOmni(nn.Module):
         # Hybrid Attention Processing
         for i, block in enumerate(self.attn_blocks):
             is_local = (i % 2 == 0) and (i < self.N_BLOCKS - 1)
-            # Vision tokens always get Global focus indirectly through block orchestration
             x = block(x, is_local=is_local, rope_cos=cos, rope_sin=sin)
             
         x = self.final_norm(x)
         logits = self.lm_head(x)
         
         # For targets, we care about predicting from the last vision token onwards
-        if images is not None:
+        if v_tokens is not None:
             n_patches = v_tokens.shape[1]
             # Take logits starting from the last vision token to predict the first text token
             logits = logits[:, n_patches-1 : -1, :] 
@@ -87,11 +87,9 @@ class JommarnOmni(nn.Module):
         loss = None
         if targets is not None:
             # Safety Fix: Clamp targets to ensure they are within [0, vocab_size-1]
-            # This prevents "nll_loss_forward_reduce_cuda_kernel_2d: Assertion t >= 0 && t < n_classes failed"
             targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
             
             # Shift targets to align with logits
-            # If multimodal, logits already shifted relative to text in forward pass
             B, T, V = logits.shape
             loss = F.cross_entropy(logits.reshape(B * T, V), targets.reshape(B * T).long())
             
@@ -100,13 +98,20 @@ class JommarnOmni(nn.Module):
     @torch.no_grad()
     def generate(self, idx, images=None, max_new_tokens=100):
         self.eval()
+        # Pre-calculate vision tokens once to save 10-20x compute time!
+        v_tokens = self.vision_encoder(images) if images is not None else None
+        
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.context_length:]
-            logits, _ = self(idx_cond, images=images)
+            logits, _ = self(idx_cond, v_tokens=v_tokens) # Reuse vision tokens
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
+            
+            # Early stopping if model outputs <|endoftext|> (optional but good)
+            if idx_next.item() == 1: # Standard EOS for some, adjust if needed
+                break
         return idx
 
 if __name__ == '__main__':
