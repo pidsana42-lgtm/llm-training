@@ -25,7 +25,47 @@ if torch.cuda.device_count() > 1:
 
 model = model.to(config['device'])
 
-# Print the total number of parameters
+# --- Resume Training Logic ---
+start_step = 0
+hf_repo = os.getenv("HF_REPO_ID")
+checkpoint_name = os.path.basename(config['t_out_path']).replace(".pt", "_latest.pt")
+local_checkpoint_path = os.path.join("models", checkpoint_name)
+
+# 1. Try to download from Hugging Face if not found locally
+if hf_repo and not os.path.exists(local_checkpoint_path):
+    print(f"Checking for latest checkpoint in Hugging Face Hub: {hf_repo}...")
+    try:
+        from huggingface_hub import hf_hub_download
+        os.makedirs("models", exist_ok=True)
+        downloaded_path = hf_hub_download(
+            repo_id=hf_repo, 
+            filename=checkpoint_name,
+            local_dir="models",
+            local_dir_use_symlinks=False
+        )
+        print(f"Downloaded checkpoint from Hub: {downloaded_path}")
+    except Exception as e:
+        print(f"No checkpoint found on Hub or error: {e}")
+
+# 2. Load the latest checkpoint (Local or Downloaded)
+checkpoint = None
+if os.path.exists(local_checkpoint_path):
+    print(f"Resuming training from checkpoint: {local_checkpoint_path}")
+    checkpoint = torch.load(local_checkpoint_path, map_location=config['device'])
+    
+    # Handle DataParallel vs Single-GPU state dicts
+    state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
+    if hasattr(model, 'module'):
+        # If training with Multi-GPU but checkpoint is single-GPU, wrap or clean
+        model.module.load_state_dict({k.replace('module.', ''): v for k, v in state_dict.items()})
+    else:
+        # If training with Single-GPU but checkpoint is Multi-GPU, clean prefix
+        model.load_state_dict({k.replace('module.', ''): v for k, v in state_dict.items()})
+        
+    start_step = checkpoint.get('steps', 0)
+    print(f"Restarting from step: {start_step}")
+
+# Print total parameters
 inner_model = model.module if hasattr(model, 'module') else model
 total_params = sum(p.numel() for p in inner_model.parameters())
 print(f"Total number of parameters in the model: {total_params:,}")
@@ -33,8 +73,13 @@ print(f"Total number of parameters in the model: {total_params:,}")
 # --- Optimizer Setup and Loss Tracking ---
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=config['t_lr'])
-# scaler = torch.amp.GradScaler('cuda') # Optional: For Mixed Precision if needed
-losses = []
+if checkpoint and 'optimizer_state_dict' in checkpoint:
+    try:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    except:
+        print("Warning: Could not load optimizer state, starting with fresh optimizer.")
+
+losses = checkpoint.get('losses', []) if checkpoint else []
 AVG_WINDOW = 64
 
 # --- Multimodal Training Loop ---
@@ -49,9 +94,8 @@ print(f"Starting Training on {config['device']} with physical batch size {config
 grad_accum_steps = config.get('t_grad_accum', 1)
 print(f"Gradient Accumulation enabled: {grad_accum_steps} steps (Effective batch size: {config['t_batch_size'] * grad_accum_steps})")
 
-pbar = tqdm(range(config['t_train_steps']))
+pbar = tqdm(range(start_step, config['t_train_steps']))
 train_iter = iter(train_loader)
-hf_repo = os.getenv("HF_REPO_ID")
 
 for step in pbar:
     optimizer.zero_grad(set_to_none=True)
@@ -66,8 +110,7 @@ for step in pbar:
                 train_iter = iter(train_loader)
                 images, tokens, _ = next(train_iter)
 
-            # Target Shifting: xb is input (0 to T-1), yb is target (1 to T)
-            # This is the core of language modeling!
+            # Target Shifting
             xb = tokens[:, :-1].to(config['device'])
             yb = tokens[:, 1:].to(config['device'])
             images = images.to(config['device'])
@@ -97,14 +140,19 @@ for step in pbar:
         # Save checkpoint periodically
         if step > 0 and step % config['t_eval_steps'] == 0:
             checkpoint_path = config['t_out_path'].replace(".pt", f"_step_{step}.pt")
-            torch.save(model.state_dict(), checkpoint_path)
+            torch.save(inner_model.state_dict(), checkpoint_path)
             
         # Periodic Push to Hugging Face every 100 steps
         if step > 0 and step % 100 == 0 and hf_repo:
             print(f"\nStep {step}: Periodic push to Hugging Face...")
             try:
                 temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
-                torch.save(model.state_dict(), temp_checkpoint)
+                torch.save({
+                    'model_state_dict': inner_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'steps': step,
+                    'losses': losses
+                }, temp_checkpoint)
                 from scripts.push_to_hf import push_to_hub
                 push_to_hub(repo_id=hf_repo, model_path=temp_checkpoint)
             except Exception as e:
@@ -118,10 +166,10 @@ for step in pbar:
 
 torch.save(
     {
-        'model_state_dict': model.state_dict(),
+        'model_state_dict': inner_model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'losses': losses,
-        'steps': len(losses),
+        'steps': config['t_train_steps'],
     },
     config['t_out_path']
 )
