@@ -37,8 +37,9 @@ class JommarnMasterDataset(Dataset):
         ])
 
     def tokenize(self, text, max_len=512):
+        # Prepend <bos> (id 2 for Gemma) to help model know where to start
         return self.tokenizer(
-            text + "<|endoftext|>",
+            "<bos>" + text + "<|endoftext|>",
             truncation=True,
             max_length=max_len,
             padding="max_length",

@@ -78,17 +78,16 @@ class JommarnOmni(nn.Module):
         x = self.final_norm(x)
         logits = self.lm_head(x)
         
-        # For targets, we usually only care about predicting the next text token
+        # For targets, we care about predicting from the last vision token onwards
         if images is not None:
             n_patches = v_tokens.shape[1]
-            logits = logits[:, n_patches:, :] # Only take text logits
+            # Take logits starting from the last vision token to predict the first text token
+            logits = logits[:, n_patches-1 : -1, :] 
             
         loss = None
         if targets is not None:
-            # Safety Fix: Clamp targets to ensure they are within [0, vocab_size-1]
-            # This prevents "nll_loss_forward_reduce_cuda_kernel_2d: Assertion t >= 0 && t < n_classes failed"
-            targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
-            
+            # Shift targets to align with logits
+            # If multimodal, logits already shifted relative to text in forward pass
             B, T, V = logits.shape
             loss = F.cross_entropy(logits.reshape(B * T, V), targets.reshape(B * T).long())
             
