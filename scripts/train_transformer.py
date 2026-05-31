@@ -87,6 +87,18 @@ for step in pbar:
         if step > 0 and step % config['t_eval_steps'] == 0:
             checkpoint_path = config['t_out_path'].replace(".pt", f"_step_{step}.pt")
             torch.save(model.state_dict(), checkpoint_path)
+            
+        # Periodic Push to Hugging Face every 100 steps
+        if step > 0 and step % 100 == 0 and hf_repo:
+            print(f"\nStep {step}: Periodic push to Hugging Face...")
+            try:
+                # Save a temporary checkpoint for pushing
+                temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
+                torch.save(model.state_dict(), temp_checkpoint)
+                from scripts.push_to_hf import push_to_hub
+                push_to_hub(repo_id=hf_repo, model_path=temp_checkpoint)
+            except Exception as e:
+                print(f"Failed periodic push: {e}")
 
     except Exception as e:
         print(f"Error at step {step}: {e}")
