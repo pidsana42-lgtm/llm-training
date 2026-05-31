@@ -2,7 +2,7 @@ import torch
 import tiktoken
 import argparse
 from config.config import default_config as config
-from src.models.transformer import Transformer  # Assuming your Transformer class is in this module
+from src.models.transformer import JommarnOmni as Transformer  # Assuming your Transformer class is in this module
 
 def generate_text(model_path: str, input_text: str, max_new_tokens: int = 100, device: str = 'cuda') -> str:
     """

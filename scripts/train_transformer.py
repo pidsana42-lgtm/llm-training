@@ -4,7 +4,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 from config.config import default_config as config
-from src.models.transformer import Transformer
+from src.models.transformer import JommarnOmni as Transformer
 from scripts.master_data_loader import get_master_loader
 from typing import Dict
 
