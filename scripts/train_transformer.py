@@ -125,7 +125,10 @@ for step in pbar:
             accum_loss += loss.item()
 
         # Update weights after accumulation
-        optimizer.step()
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Gradient Clipping: เบรกมือป้องกัน NaN
+        scaler.step(optimizer)
+        scaler.update()
         
         # Record the loss for tracking.
         losses.append(accum_loss)

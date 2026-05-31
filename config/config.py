@@ -24,8 +24,8 @@ T_TRAIN_STEPS = 100000
 T_EVAL_STEPS = 500         
 T_EVAL_ITERS = 100         
 T_LR_DECAY_STEP = 20000    
-T_LR = 4e-4                 
-T_LR_DECAYED = 4e-5        
+T_LR = 2e-4                 # ลดลงเหลือ 2e-4 เพื่อป้องกัน NaN และเพิ่มความเสถียร
+T_LR_DECAYED = 2e-5        
 T_OUT_PATH = "models/jommarn_omni_206m_l40s.pt"
 
 # Device
