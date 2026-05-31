@@ -55,12 +55,29 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
     # 4. Process Text
     input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).unsqueeze(0)
 
-    # 5. Generate
+    # 5. Generate with Early Stopping
     print(f"Jommarn-Omni is thinking...")
+    max_new_tokens = 50
+    eos_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else tokenizer.encode("<|endoftext|>")[0]
+    
     with torch.no_grad():
-        output_ids = model.generate(input_ids, images=image_tensor, max_new_tokens=50)
+        generated_ids = input_ids
+        for _ in range(max_new_tokens):
+            # Pass to model
+            logits, _ = model(generated_ids, images=image_tensor)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits, dim=-1)
+            next_id = torch.multinomial(probs, num_samples=1)
+            
+            # Append
+            generated_ids = torch.cat((generated_ids, next_id), dim=1)
+            
+            # Check for EOS (Early Stopping)
+            if next_id.item() == eos_token_id:
+                print("Jommarn-Omni finished speaking.")
+                break
         
-    result = tokenizer.decode(output_ids[0].tolist(), skip_special_tokens=True)
+    result = tokenizer.decode(generated_ids[0].tolist(), skip_special_tokens=True)
     print(f"\n--- Result ---\n{result}\n--------------")
 
 if __name__ == "__main__":
