@@ -61,18 +61,20 @@ for step in pbar:
         # Gradient Accumulation Loop
         for _ in range(grad_accum_steps):
             try:
-                images, xb, yb = next(train_iter)
+                images, tokens, _ = next(train_iter)
             except StopIteration:
                 train_iter = iter(train_loader)
-                images, xb, yb = next(train_iter)
+                images, tokens, _ = next(train_iter)
 
-            # Move to device
+            # Target Shifting: xb is input (0 to T-1), yb is target (1 to T)
+            # This is the core of language modeling!
+            xb = tokens[:, :-1].to(config['device'])
+            yb = tokens[:, 1:].to(config['device'])
             images = images.to(config['device'])
-            xb = xb.to(config['device'])
-            yb = yb.to(config['device'])
 
             # Forward pass
-            logits, loss = model(xb, images=images, targets=yb)
+            with torch.amp.autocast('cuda'):
+                logits, loss = model(xb, images=images, targets=yb)
             
             # Scale loss for accumulation
             loss = loss / grad_accum_steps
