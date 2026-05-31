@@ -55,27 +55,46 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
     # 4. Process Text
     input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).unsqueeze(0)
 
-    # 5. Generate with Early Stopping
+    # 5. Generate with Advanced Sampling (Temperature, Top-k, Top-p)
     print(f"Jommarn-Omni is thinking...")
-    max_new_tokens = 50
+    max_new_tokens = 150 # Increased default for longer text
+    temperature = 0.8    # Creativity control
+    top_k = 50           # Filter low-probability tokens
+    top_p = 0.9          # Nucleus sampling for diversity
+    
     eos_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else tokenizer.encode("<|endoftext|>")[0]
     
     with torch.no_grad():
         generated_ids = input_ids
         for _ in range(max_new_tokens):
             # Pass to model
-            logits, _ = model(generated_ids, images=image_tensor)
-            logits = logits[:, -1, :]
+            logits, _ = model(generated_ids, v_tokens=image_tensor)
+            logits = logits[:, -1, :] / temperature # Apply temperature
+            
+            # Top-k sampling
+            if top_k > 0:
+                indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+                logits[indices_to_remove] = float('-inf')
+                
+            # Top-p (Nucleus) sampling
+            if top_p < 1.0:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                sorted_indices_to_remove = cumulative_probs > top_p
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                sorted_indices_to_remove[..., 0] = 0
+                indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                logits[:, indices_to_remove] = float('-inf')
+                
             probs = F.softmax(logits, dim=-1)
             next_id = torch.multinomial(probs, num_samples=1)
             
             # Append
             generated_ids = torch.cat((generated_ids, next_id), dim=1)
             
-            # Check for EOS (Early Stopping) - More robust check
+            # Early stopping check
             next_token_text = tokenizer.decode(next_id.item())
             if next_id.item() == eos_token_id or "<|endoftext|>" in next_token_text or "<unused" in next_token_text:
-                print("Jommarn-Omni finished speaking.")
                 break
         
     result = tokenizer.decode(generated_ids[0].tolist(), skip_special_tokens=True)
