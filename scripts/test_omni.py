@@ -7,7 +7,7 @@ from src.models.transformer import JommarnOmni as Transformer
 import argparse
 import os
 
-def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8, img_size=448):
+def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8, img_size=512):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=300, help="Maximum tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature (lower = more focused)")
     parser.add_argument("--n_kv_head", type=int, default=2, help="Number of KV heads (GQA)")
-    parser.add_argument("--img_size", type=int, default=448, help="Image size (default 448)")
+    parser.add_argument("--img_size", type=int, default=512, help="Image size (default 512)")
 
     args = parser.parse_args()
     test_omni(

@@ -18,7 +18,7 @@ class JommarnMasterDataset(Dataset):
     2. Thai Handwriting (Vision + Text)
     3. Appen Thai Document OCR (Vision + Text)
     """
-    def __init__(self, tokenizer_path="tokenizer.json", img_size=448, mode="multimodal"):
+    def __init__(self, tokenizer_path="tokenizer.json", img_size=512, mode="multimodal"):
         self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tokenizer_path)
         
         # Gemma tokenizer usually doesn't have a default pad token set in the json
@@ -132,17 +132,7 @@ class DetailedOcrSource(JommarnMasterDataset):
             target = item["detailed_caption_en"]
         else: # thinking_ocr
             prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
-            target = (
-                f"<think>\n{item['think_process']}\n</think>\n\n"
-                f"**ข้อความที่ถอดได้:**\n{item['ocr_text']}\n\n"
-                f"**คำบรรยายภาพ:**\n{item['detailed_caption_thai']}"
-            )
-            
-        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
-        tokens = self.tokenize(text_format)
-        return img, tokens, tokens
-
-class AstrologyDatasetSource(JommarnMasterDataset):
+         class AstrologyDatasetSource(JommarnMasterDataset):
     """
     Astrology & Document Layout Dataset (Phonsiri/astrology-dataset-clean)
     Provides OCR, Layout Captioning, and Category Classification.
@@ -176,44 +166,106 @@ class AstrologyDatasetSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class CocoThaiDetailedSource(JommarnMasterDataset):
+    """
+    COCO Thai Detailed Captions Dataset (Phonsiri/coco-thai-gemma4-detailed)
+    Provides General Scene Understanding in Thai and English with dynamic fallback cleaning.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Phonsiri/coco-thai-gemma4-detailed Dataset...")
+        self.data = load_dataset("Phonsiri/coco-thai-gemma4-detailed", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def _clean_text(self, text):
+        if not text:
+            return ""
+        text_lower = text.lower()
+        # Skip placeholders & instructions
+        if "thai description" in text_lower or "english description" in text_lower:
+            return ""
+        if "combine all" in text_lower or "translate the" in text_lower:
+            return ""
+        return text.strip()
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = self.transform(item["image"].convert("RGB"))
+        
+        # Clean candidates
+        th_detailed = self._clean_text(item.get("detailed_caption_thai"))
+        th_think = self._clean_text(item.get("think_process"))
+        th_orig = self._clean_text(item.get("original_caption"))
+        
+        # Resolve best Thai caption
+        th_caption = th_detailed if (th_detailed and len(th_detailed) > 10) else th_think
+        if not th_caption or len(th_caption) < 10:
+            th_caption = th_orig
+            
+        # Resolve best English caption
+        en_caption = self._clean_text(item.get("detailed_caption_en"))
+        if not en_caption or len(en_caption) < 10:
+            en_caption = th_caption # Fallback to Thai if English is missing/junk
+            
+        # Randomly choose between Thai and English captioning task
+        task = random.choice(["thai", "english"])
+        
+        if task == "thai":
+            prompt = "จงบรรยายรายละเอียดของภาพนี้อย่างละเอียด"
+            target = th_caption
+        else:
+            prompt = "Describe the details of this image in English."
+            target = en_caption
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16):
     """
     Creates a combined loader that samples from all sources in a BALANCED way.
-    Balances across 4 sources: Detailed OCR (25%), Astrology Layout (25%), Handwriting OCR (25%), and Wiki (25%).
+    Balances across 5 sources: Detailed OCR (20%), Astrology Layout (20%), COCO General (20%), Handwriting OCR (20%), and Wiki (20%).
     """
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
     ds_detailed = DetailedOcrSource()
     ds_astrology = AstrologyDatasetSource()
+    ds_coco = CocoThaiDetailedSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed, ds_astrology])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed, ds_astrology, ds_coco])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
     num_detailed = len(ds_detailed)
     num_astrology = len(ds_astrology)
-    total = num_hw + num_wiki + num_detailed + num_astrology
+    num_coco = len(ds_coco)
+    total = num_hw + num_wiki + num_detailed + num_astrology + num_coco
     
-    # 25% target probability for each of the 4 datasets
-    w_hw = (total * 0.25) / num_hw
-    w_wiki = (total * 0.25) / num_wiki
-    w_detailed = (total * 0.25) / num_detailed
-    w_astrology = (total * 0.25) / num_astrology
+    # 20% target probability for each of the 5 datasets
+    w_hw = (total * 0.20) / num_hw
+    w_wiki = (total * 0.20) / num_wiki
+    w_detailed = (total * 0.20) / num_detailed
+    w_astrology = (total * 0.20) / num_astrology
+    w_coco = (total * 0.20) / num_coco
     
     weights = (
         [w_hw] * num_hw + 
         [w_wiki] * num_wiki + 
         [w_detailed] * num_detailed +
-        [w_astrology] * num_astrology
+        [w_astrology] * num_astrology +
+        [w_coco] * num_coco
     )
     sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
     
     print(f"Balanced Sampler Active:")
-    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 25%)")
-    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 25%)")
-    print(f" - Handwriting: {num_hw} rows (Sample weight: 25%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 25%)")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 20%)")
+    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 20%)")
+    print(f" - COCO General: {num_coco} rows (Sample weight: 20%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: 20%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
 
     return DataLoader(
         master_ds, 
