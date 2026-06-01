@@ -1,6 +1,9 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import torch
 import torch.nn.functional as F
-import os
 from tqdm import tqdm
 import numpy as np
 from config.config import default_config as config
