@@ -132,7 +132,17 @@ class DetailedOcrSource(JommarnMasterDataset):
             target = item["detailed_caption_en"]
         else: # thinking_ocr
             prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
-         class AstrologyDatasetSource(JommarnMasterDataset):
+            target = (
+                f"<think>\n{item.get('think_process', '')}\n</think>\n\n"
+                f"**ข้อความที่ถอดได้:**\n{item.get('ocr_text', '')}\n\n"
+                f"**คำบรรยายภาพ:**\n{item.get('detailed_caption_thai', '')}"
+            )
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
+class AstrologyDatasetSource(JommarnMasterDataset):
     """
     Astrology & Document Layout Dataset (Phonsiri/astrology-dataset-clean)
     Provides OCR, Layout Captioning, and Category Classification.
@@ -196,31 +206,43 @@ class CocoThaiDetailedSource(JommarnMasterDataset):
         
         # Clean candidates
         th_detailed = self._clean_text(item.get("detailed_caption_thai"))
+        en_detailed = self._clean_text(item.get("detailed_caption_en"))
         th_think = self._clean_text(item.get("think_process"))
         th_orig = self._clean_text(item.get("original_caption"))
+        
+        # Combine Thai and English detailed captions
+        captions = []
         
         # Resolve best Thai caption
         th_caption = th_detailed if (th_detailed and len(th_detailed) > 10) else th_think
         if not th_caption or len(th_caption) < 10:
             th_caption = th_orig
             
-        # Resolve best English caption
-        en_caption = self._clean_text(item.get("detailed_caption_en"))
-        if not en_caption or len(en_caption) < 10:
-            en_caption = th_caption # Fallback to Thai if English is missing/junk
-            
-        # Randomly choose between Thai and English captioning task
-        task = random.choice(["thai", "english"])
+        en_caption = en_detailed
         
-        if task == "thai":
-            prompt = "จงบรรยายรายละเอียดของภาพนี้อย่างละเอียด"
-            target = th_caption
-        else:
-            prompt = "Describe the details of this image in English."
-            target = en_caption
+        if th_caption:
+            captions.append(th_caption)
             
+        if en_caption and len(en_caption) > 10 and en_caption not in captions:
+            # Check if one is a substring of the other to avoid duplicate/mixed sentences
+            if th_caption and (th_caption in en_caption or en_caption in th_caption):
+                # Use the longer one
+                if len(en_caption) > len(th_caption):
+                    captions = [en_caption]
+                else:
+                    captions = [th_caption]
+            else:
+                captions.append(en_caption)
+                
+        if not captions:
+            # Absolute fallback
+            captions = [th_orig if th_orig else "รายละเอียดรูปภาพ"]
+            
+        target = "\n\n".join(captions)
+        prompt = "จงบรรยายรายละเอียดของภาพนี้อย่างละเอียด"
+        
         text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
-        tokens = self.tokenize(text_format)
+        tokens = self.tokenize(text_format, max_len=512)
         return img, tokens, tokens
 
 def get_master_loader(batch_size=16):
