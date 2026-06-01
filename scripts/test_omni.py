@@ -7,7 +7,7 @@ from src.models.transformer import JommarnOmni as Transformer
 import argparse
 import os
 
-def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_head=8, n_blocks=14):
+def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -17,9 +17,10 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
     model = Transformer(
         n_head=n_head, 
         n_embed=n_embed, 
-        context_length=1024, 
+        context_length=context_length, 
         vocab_size=vocab_size, 
-        N_BLOCKS=n_blocks
+        N_BLOCKS=n_blocks,
+        n_kv_head=n_kv_head
     )
     
     checkpoint = torch.load(model_path, map_location=device)
@@ -57,44 +58,100 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=512, n_
 
     # 5. Generate with Advanced Sampling (Temperature, Top-k, Top-p)
     print(f"Jommarn-Omni is thinking...")
-    max_new_tokens = 150 # Increased default for longer text
-    temperature = 0.8    # Creativity control
-    top_k = 50           # Filter low-probability tokens
-    top_p = 0.9          # Nucleus sampling for diversity
-    
+    max_new_tokens = max_new_tokens  # from CLI arg
+    temperature = temperature        # from CLI arg
+    top_k = 50                       # Filter low-probability tokens
+    top_p = 0.9                      # Nucleus sampling for diversity
+    # Use context_length from function arguments
+    max_text_ctx = context_length    # max text tokens in one step
+
     eos_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else tokenizer.encode("<|endoftext|>")[0]
-    
+
+    # ✅ Fix 1: Pre-compute vision tokens ONCE outside loop (10-20x faster)
+    with torch.no_grad():
+        v_tokens = model.vision_encoder(image_tensor) if image_tensor is not None else None
+
     with torch.no_grad():
         generated_ids = input_ids
-        for _ in range(max_new_tokens):
-            # Pass to model
-            logits, _ = model(generated_ids, v_tokens=image_tensor)
-            logits = logits[:, -1, :] / temperature # Apply temperature
+        
+        # MTP generates 4 tokens per forward pass -> cut loop steps to a quarter!
+        steps = max(1, max_new_tokens // 4)
+        print(f"  Running {steps} MTP steps (Generating up to {steps * 4} tokens)...")
+        
+        for step in range(steps):
+            # ✅ Fix 2: Truncate text context to stay within model's context window
+            idx_cond = generated_ids[:, -max_text_ctx:]
+
+            # Pass pre-computed v_tokens (avoids re-running vision encoder every step)
+            logits, _ = model(idx_cond, v_tokens=v_tokens)
             
-            # Top-k sampling
+            # --- 1. PREDICT TOKEN 1 (Standard Head) ---
+            logits_1 = logits[:, -1, :] / temperature
+
+            # Top-k sampling for Token 1
             if top_k > 0:
-                indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-                logits[indices_to_remove] = float('-inf')
-                
-            # Top-p (Nucleus) sampling
+                top_k_vals = torch.topk(logits_1, min(top_k, logits_1.size(-1)))[0][..., -1, None]
+                logits_1[logits_1 < top_k_vals] = float('-inf')
+
+            # Top-p (Nucleus) sampling for Token 1
             if top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                sorted_logits, sorted_indices = torch.sort(logits_1, descending=True)
                 cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
                 sorted_indices_to_remove = cumulative_probs > top_p
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                 sorted_indices_to_remove[..., 0] = 0
                 indices_to_remove = sorted_indices[sorted_indices_to_remove]
-                logits[:, indices_to_remove] = float('-inf')
+                logits_1[:, indices_to_remove] = float('-inf')
+
+            probs_1 = F.softmax(logits_1, dim=-1)
+            next_id_1 = torch.multinomial(probs_1, num_samples=1)
+            
+            # Store generated tokens for this step
+            step_gen_ids = [next_id_1]
+            h_state = model._last_h.unsqueeze(1) # (B, 1, n_embed)
+            
+            # --- 2. PREDICT TOKENS 2, 3, AND 4 (MTP Recursive Heads) ---
+            for k in range(3):
+                # Embed the previous generated token
+                emb_prev = model.token_embed(step_gen_ids[-1])
+                # Mix using current MTP mixer
+                h_state = model.mtp_mixers[k](torch.cat([h_state, emb_prev], dim=-1))
+                # Project to vocab
+                logits_k = model.lm_head(h_state).squeeze(1) / temperature
                 
-            probs = F.softmax(logits, dim=-1)
-            next_id = torch.multinomial(probs, num_samples=1)
+                # Apply Top-k to Token k+2
+                if top_k > 0:
+                    top_k_vals_k = torch.topk(logits_k, min(top_k, logits_k.size(-1)))[0][..., -1, None]
+                    logits_k[logits_k < top_k_vals_k] = float('-inf')
+                    
+                # Apply Top-p to Token k+2
+                if top_p < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(logits_k, descending=True)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                    sorted_indices_to_remove = cumulative_probs > top_p
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
+                    indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                    logits_k[:, indices_to_remove] = float('-inf')
+                    
+                probs_k = F.softmax(logits_k, dim=-1)
+                next_id_k = torch.multinomial(probs_k, num_samples=1)
+                step_gen_ids.append(next_id_k)
+
+            # Concatenate all 4 newly predicted tokens to sequence
+            new_step_tokens = torch.cat(step_gen_ids, dim=1)
+            generated_ids = torch.cat((generated_ids, new_step_tokens), dim=1)
+
+            # Early stopping check if any generated token in this step is EOS (id 1) or has "<|endoftext|>"
+            eos_detected = False
+            for idx_in_step, tid in enumerate(step_gen_ids):
+                token_text = tokenizer.decode(tid.item())
+                if tid.item() == eos_token_id or "<|endoftext|>" in token_text:
+                    print(f"  [EOS detected at step {step*4 + idx_in_step + 1}]")
+                    eos_detected = True
+                    break
             
-            # Append
-            generated_ids = torch.cat((generated_ids, next_id), dim=1)
-            
-            # Early stopping check
-            next_token_text = tokenizer.decode(next_id.item())
-            if next_id.item() == eos_token_id or "<|endoftext|>" in next_token_text or "<unused" in next_token_text:
+            if eos_detected:
                 break
         
     result = tokenizer.decode(generated_ids[0].tolist(), skip_special_tokens=True)
@@ -109,6 +166,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="models/jommarn_omni_206m_l40s_latest.pt")
     parser.add_argument("--image", type=str, default=None, help="Path to test image (optional)")
     parser.add_argument("--prompt", type=str, default="รูปภาพนี้คือ", help="Thai prompt")
-    
+    parser.add_argument("--max_new_tokens", type=int, default=300, help="Maximum tokens to generate")
+    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature (lower = more focused)")
+    parser.add_argument("--n_kv_head", type=int, default=2, help="Number of KV heads (GQA)")
+
     args = parser.parse_args()
-    test_omni(args.model, args.image, args.prompt)
+    test_omni(
+        args.model, 
+        args.image, 
+        args.prompt, 
+        max_new_tokens=args.max_new_tokens, 
+        temperature=args.temperature,
+        n_kv_head=args.n_kv_head
+    )

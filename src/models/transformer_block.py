@@ -35,10 +35,10 @@ class Block(nn.Module):
         context_length (int): Maximum sequence length.
         layer_id (int): The index of this layer in the stack.
     """
-    def __init__(self, n_head: int, n_embed: int, context_length: int, layer_id: int) -> None:
+    def __init__(self, n_head: int, n_embed: int, context_length: int, layer_id: int, n_kv_head: int = 2) -> None:
         super().__init__()
         self.ln1 = RMSNorm(n_embed)
-        self.attn = MultiHeadAttention(n_head, n_embed, context_length)
+        self.attn = MultiHeadAttention(n_head, n_embed, context_length, n_kv_head=n_kv_head)
         self.ln2 = RMSNorm(n_embed)
         self.mlp = MLP(n_embed)
         
@@ -79,13 +79,13 @@ if __name__ == '__main__':
     # Example Usage
     batch_size = 2
     sequence_length = 5
-    embedding_dim = 32
-    num_heads = 4
+    embedding_dim = 768
+    num_heads = 12
     context_len = 5
     input_tensor = torch.randn(batch_size, sequence_length, embedding_dim)
 
-    transformer_block = Block(n_head=num_heads, n_embed=embedding_dim, context_length=context_len, layer_id=0)
+    transformer_block = Block(n_head=num_heads, n_embed=embedding_dim, context_length=context_len, layer_id=0, n_kv_head=2)
     output_tensor = transformer_block(input_tensor)
 
-    print("Gemma Block Input Shape:", input_tensor.shape)
-    print("Gemma Block Output Shape:", output_tensor.shape)
+    print("Jommarn Block Input Shape:", input_tensor.shape)
+    print("Jommarn Block Output Shape:", output_tensor.shape)

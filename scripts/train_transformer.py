@@ -15,7 +15,8 @@ model = Transformer(
     n_embed=config['n_embed'],
     context_length=config['context_length'],
     vocab_size=config['vocab_size'],
-    N_BLOCKS=config['n_blocks']
+    N_BLOCKS=config['n_blocks'],
+    n_kv_head=config['n_kv_heads']
 )
 
 # Multi-GPU Support

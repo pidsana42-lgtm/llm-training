@@ -49,7 +49,9 @@ class VisionBlock(nn.Module):
 
     def forward(self, x):
         # Global Attention for the Vision Encoder
-        attn_out, _ = self.attn(self.ln1(x), self.ln1(x), self.ln1(x))
+        # Compute ln1(x) once to avoid redundant 3x computation
+        normed = self.ln1(x)
+        attn_out, _ = self.attn(normed, normed, normed)
         x = x + attn_out
         x = x + self.mlp(self.ln2(x))
         return x
@@ -59,7 +61,7 @@ class JommarnVisionEncoder(nn.Module):
     Mini-Vision Encoder trained from scratch.
     Target Parameters: ~3M
     """
-    def __init__(self, img_size=224, patch_size=16, n_head=6, n_embed=192, n_layers=3):
+    def __init__(self, img_size=224, patch_size=16, n_head=6, n_embed=192, n_layers=8):
         super().__init__()
         self.patch_embed = PatchEmbedding(img_size, patch_size, 3, n_embed)
         

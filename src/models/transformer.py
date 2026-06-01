@@ -21,7 +21,7 @@ class JommarnOmni(nn.Module):
     Combines Jommarn-Tiny (Thinker) with Jommarn-Vision (Encoder).
     Total Parameters: ~16.5M
     """
-    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int) -> None:
+    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int, n_kv_head: int = 2) -> None:
         super().__init__()
         self.context_length = context_length
         self.N_BLOCKS = N_BLOCKS
@@ -34,12 +34,23 @@ class JommarnOmni(nn.Module):
         # 2. Text Thinker
         self.token_embed = nn.Embedding(vocab_size, n_embed)
         self.attn_blocks = nn.ModuleList([
-            Block(n_head, n_embed, context_length + 256, layer_id=i) 
+            Block(n_head, n_embed, context_length + 256, layer_id=i, n_kv_head=n_kv_head) 
             for i in range(N_BLOCKS)
         ])
         
         self.final_norm = RMSNorm(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size, bias=False)
+        
+        # ✅ 3. Multi-Token Prediction (MTP) Stack for n=4
+        # We need 3 mixers: MTP1 (predicts t+2), MTP2 (predicts t+3), MTP3 (predicts t+4)
+        self.mtp_mixers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(2 * n_embed, n_embed, bias=False),
+                RMSNorm(n_embed),
+                nn.GELU(),
+                nn.Linear(n_embed, n_embed, bias=False)
+            ) for _ in range(3)
+        ])
         
         # RoPE
         cos, sin = precompute_rope_freqs(self.head_size, context_length)
@@ -48,6 +59,9 @@ class JommarnOmni(nn.Module):
         
         # Weight tying
         self.token_embed.weight = self.lm_head.weight
+        
+        # Cache for fast inference MTP steps
+        self._last_h = None
 
     def forward(self, idx: torch.Tensor, images: torch.Tensor = None, targets: torch.Tensor = None, v_tokens: torch.Tensor = None):
         B, T = idx.shape
@@ -75,50 +89,116 @@ class JommarnOmni(nn.Module):
             is_local = (i % 2 == 0) and (i < self.N_BLOCKS - 1)
             x = block(x, is_local=is_local, rope_cos=cos, rope_sin=sin)
             
-        x = self.final_norm(x)
-        logits = self.lm_head(x)
+        h = self.final_norm(x)
         
-        # For targets, we care about predicting from the last vision token onwards
+        # Extract text representations (skip vision tokens if present)
         if v_tokens is not None:
             n_patches = v_tokens.shape[1]
-            # Take logits starting from the last vision token to predict the first text token
-            logits = logits[:, n_patches-1 : -1, :] 
+            h_text = h[:, n_patches:, :]
+        else:
+            h_text = h
             
+        # Store the last hidden state for fast MTP inference
+        self._last_h = h_text[:, -1, :]
+            
+        logits = self.lm_head(h_text)
+        
         loss = None
         if targets is not None:
-            # Safety Fix: Clamp targets to ensure they are within [0, vocab_size-1]
+            # Clamp targets
             targets = torch.clamp(targets, 0, self.lm_head.out_features - 1)
             
-            # Shift targets to align with logits
-            B, T, V = logits.shape
-            loss = F.cross_entropy(logits.reshape(B * T, V), targets.reshape(B * T).long())
+            # For 4-Token MTP, we need targets for:
+            # y1 (t+1), y2 (t+2), y3 (t+3), y4 (t+4)
+            # This requires sequence length to be at least 4.
+            if targets.shape[1] >= 4:
+                # Slicing targets:
+                y1 = targets[:, 0:-3]
+                y2 = targets[:, 1:-2]
+                y3 = targets[:, 2:-1]
+                y4 = targets[:, 3:]
+                
+                # Slicing standard logits to align with y1
+                h_text_sliced = h_text[:, :-3, :]
+                logits_1 = logits[:, :-3, :]
+                
+                loss_1 = F.cross_entropy(logits_1.reshape(-1, logits_1.size(-1)), y1.reshape(-1).long())
+                
+                # Recursive Gated MTP predictions
+                current_h = h_text_sliced
+                mtp_losses = []
+                targets_list = [y2, y3, y4]
+                
+                # Loop through the 3 MTP mixers
+                for k in range(3):
+                    # Condition on the previous target token (e.g. y1 for MTP1, y2 for MTP2, etc.)
+                    cond_token = y1 if k == 0 else targets_list[k-1]
+                    emb_cond = self.token_embed(cond_token)
+                    
+                    # Mix previous layer representation with target token embedding
+                    current_h = self.mtp_mixers[k](torch.cat([current_h, emb_cond], dim=-1))
+                    
+                    # Project to vocabulary
+                    logits_k = self.lm_head(current_h)
+                    y_k = targets_list[k]
+                    
+                    loss_k = F.cross_entropy(logits_k.reshape(-1, logits_k.size(-1)), y_k.reshape(-1).long())
+                    mtp_losses.append(loss_k)
+                
+                # Combined Loss: Primary loss + 0.3 * sum(MTP losses)
+                loss = loss_1 + 0.3 * sum(mtp_losses)
+                logits = logits_1 # Return primary logits for logging compat
+            else:
+                # Fallback to standard 1-token prediction if sequence is too short
+                loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1).long())
             
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, images=None, max_new_tokens=100):
+    def generate(self, idx, images=None, max_new_tokens=100, temperature=0.8):
         self.eval()
-        # Pre-calculate vision tokens once to save 10-20x compute time!
+        # Pre-calculate vision tokens once to save compute
         v_tokens = self.vision_encoder(images) if images is not None else None
         
-        for _ in range(max_new_tokens):
+        # MTP generates 4 tokens per loop step -> cut steps to a quarter!
+        steps = max(1, max_new_tokens // 4)
+        for _ in range(steps):
             idx_cond = idx[:, -self.context_length:]
-            logits, _ = self(idx_cond, v_tokens=v_tokens) # Reuse vision tokens
-            logits = logits[:, -1, :]
-            probs = F.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat((idx, idx_next), dim=1)
+            logits, _ = self(idx_cond, v_tokens=v_tokens) # Populates self._last_h
             
-            # Early stopping if model outputs <|endoftext|> (optional but good)
-            if idx_next.item() == 1: # Standard EOS for some, adjust if needed
+            # 1. Sample Token 1 (Standard Head)
+            logits_curr = logits[:, -1, :] / temperature
+            probs_curr = F.softmax(logits_curr, dim=-1)
+            next_id_curr = torch.multinomial(probs_curr, num_samples=1)
+            
+            # Store generated tokens in a list
+            gen_ids = [next_id_curr]
+            h_state = self._last_h.unsqueeze(1) # (B, 1, n_embed)
+            
+            # 2. Predict Tokens 2, 3, and 4 recursively using the 3 MTP mixers
+            for k in range(3):
+                emb_prev = self.token_embed(gen_ids[-1]) # Embed the last predicted token
+                h_state = self.mtp_mixers[k](torch.cat([h_state, emb_prev], dim=-1))
+                
+                logits_k = self.lm_head(h_state).squeeze(1) / temperature
+                probs_k = F.softmax(logits_k, dim=-1)
+                next_id_k = torch.multinomial(probs_k, num_samples=1)
+                gen_ids.append(next_id_k)
+                
+            # Concatenate all 4 newly predicted tokens to sequence
+            new_tokens = torch.cat(gen_ids, dim=1)
+            idx = torch.cat((idx, new_tokens), dim=1)
+            
+            # Early stopping check if any generated token is EOS (id 1)
+            if any(tid.item() == 1 for tid in gen_ids):
                 break
         return idx
 
 if __name__ == '__main__':
-    # Test Multimodal Forward
-    model = JommarnOmni(n_head=6, n_embed=192, context_length=128, vocab_size=50304, N_BLOCKS=6)
-    idx = torch.randint(0, 50304, (1, 10))
+    # Test Multimodal Forward (GQA 485M Model Config)
+    model = JommarnOmni(n_head=12, n_embed=768, context_length=128, vocab_size=262144, N_BLOCKS=22, n_kv_head=2)
+    idx = torch.randint(0, 262144, (1, 10))
     img = torch.randn(1, 3, 224, 224)
     logits, _ = model(idx, images=img)
-    print(f"Logits shape with Vision: {logits.shape}")
+    print(f"Logits shape with Vision (GQA): {logits.shape}")
     print(f"Jommarn-Omni Total Parameters: {sum(p.numel() for p in model.parameters()):,}")
