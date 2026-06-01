@@ -18,8 +18,8 @@ DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
 # Training parameters (Optimized for L40S 48GB - High Performance)
-T_BATCH_SIZE = 8            # เพิ่มเป็น 8 เพื่อใช้แรม L40S ให้คุ้มค่า
-T_GRAD_ACCUM = 4            # สะสม 4 รอบ เพื่อให้ Effective Batch Size = 32
+T_BATCH_SIZE = 4            # ลดเหลือ 4 เพื่อแก้ไขปัญหา CUDA Out of Memory
+T_GRAD_ACCUM = 8            # สะสม 8 รอบ เพื่อให้ Effective Batch Size = 32 เท่าเดิม
 T_CONTEXT_LENGTH = 4096     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 500         
