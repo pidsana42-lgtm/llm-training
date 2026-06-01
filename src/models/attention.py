@@ -96,7 +96,7 @@ class MultiHeadAttention(nn.Module):
         
         # ✅ Modern SDPA Optimization (Forced-disable FlashAttention to prevent cloud crashes)
         # Allows only memory-efficient and math backends
-        with torch.nn.attention.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=True):
+        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=True):
             if is_local:
                 # Custom causal mask with sliding window
                 mask = self.tril[:T, :T]
