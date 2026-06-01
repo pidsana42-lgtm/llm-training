@@ -8,6 +8,7 @@ from torchvision import transforms
 from transformers import PreTrainedTokenizerFast
 import glob
 import json
+import random
 
 class JommarnMasterDataset(Dataset):
     """
@@ -95,34 +96,88 @@ class AppenOCRSource(JommarnMasterDataset):
         tokens = self.tokenize("ตัวอย่างข้อความจากเอกสาร") 
         return img, tokens, tokens
 
+class DetailedOcrSource(JommarnMasterDataset):
+    """
+    Detailed OCR Source (Phonsiri/handwrite-ocr-detailed)
+    Randomly select a task configuration to train on all relationships.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Phonsiri/handwrite-ocr-detailed Dataset...")
+        self.data = load_dataset("Phonsiri/handwrite-ocr-detailed", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = self.transform(item["image"].convert("RGB"))
+        
+        # Randomly select a task to train all relationships
+        task = random.choice(["ocr_only", "caption_th", "caption_en", "thinking_ocr"])
+        
+        if task == "ocr_only":
+            prompt = "จงอ่านข้อความทั้งหมดที่ปรากฏอยู่ในภาพนี้"
+            target = item["ocr_text"]
+        elif task == "caption_th":
+            prompt = "จงอธิบายรายละเอียดของภาพนี้อย่างละเอียด"
+            target = item["detailed_caption_thai"]
+        elif task == "caption_en":
+            prompt = "Describe the details of this image in English."
+            target = item["detailed_caption_en"]
+        else: # thinking_ocr
+            prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
+            target = (
+                f"<think>\n{item['think_process']}\n</think>\n\n"
+                f"**ข้อความที่ถอดได้:**\n{item['ocr_text']}\n\n"
+                f"**คำบรรยายภาพ:**\n{item['detailed_caption_thai']}"
+            )
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16):
     """
     Creates a combined loader that samples from all sources in a BALANCED way.
-    Ensures that Vision data appears as frequently as Text data, despite dataset size differences.
+    Includes the new Phonsiri/handwrite-ocr-detailed dataset with high sampling weight.
     """
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
+    ds_detailed = DetailedOcrSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed])
     
-    # Calculate weights for balancing (Minority class gets higher weight)
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
-    total = num_hw + num_wiki
+    num_detailed = len(ds_detailed)
+    total = num_hw + num_wiki + num_detailed
     
-    # Weights for each sample in the concatenated dataset
-    # We want 50% chance for HW and 50% for Wiki
-    weights = [total / num_hw] * num_hw + [total / num_wiki] * num_wiki
+    # Target Sampling Ratio:
+    # Detailed OCR = 40%
+    # Handwriting OCR = 30%
+    # Thai Wiki = 30%
+    w_hw = (total * 0.30) / num_hw
+    w_wiki = (total * 0.30) / num_wiki
+    w_detailed = (total * 0.40) / num_detailed
+    
+    weights = (
+        [w_hw] * num_hw + 
+        [w_wiki] * num_wiki + 
+        [w_detailed] * num_detailed
+    )
     sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
     
-    print(f"Balanced Sampler Active: Handwriting ({num_hw}) vs Wiki ({num_wiki})")
-    print(f"Sampling Ratio: 1 Vision task for every 1 Text task (approx)")
+    print(f"Balanced Sampler Active:")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 40%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: 30%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 30%)")
 
     return DataLoader(
         master_ds, 
         batch_size=batch_size, 
-        sampler=sampler, # Using the new balanced sampler
+        sampler=sampler,
         num_workers=2,
         pin_memory=True
     )
