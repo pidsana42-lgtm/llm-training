@@ -137,42 +137,78 @@ class DetailedOcrSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class AstrologyDatasetSource(JommarnMasterDataset):
+    """
+    Astrology & Document Layout Dataset (Phonsiri/astrology-dataset-clean)
+    Provides OCR, Layout Captioning, and Category Classification.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Phonsiri/astrology-dataset-clean Dataset...")
+        self.data = load_dataset("Phonsiri/astrology-dataset-clean", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = self.transform(item["image"].convert("RGB"))
+        
+        # Randomly select a task to train on different document dimensions
+        task = random.choice(["ocr_text", "layout_caption", "classify"])
+        
+        if task == "ocr_text":
+            prompt = "จงอ่านและถอดข้อความทั้งหมดจากเอกสารหรือรูปภาพนี้"
+            target = item["text"]
+        elif task == "layout_caption":
+            prompt = "จงอธิบายโครงสร้างและรายละเอียดของรูปภาพหรือเอกสารนี้อย่างละเอียด"
+            target = item["caption"]
+        else: # classify
+            prompt = "รูปภาพนี้จัดอยู่ในหมวดหมู่อะไร"
+            target = f"หมวดหมู่: {item['category']}"
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16):
     """
     Creates a combined loader that samples from all sources in a BALANCED way.
-    Includes the new Phonsiri/handwrite-ocr-detailed dataset with high sampling weight.
+    Balances across 4 sources: Detailed OCR (25%), Astrology Layout (25%), Handwriting OCR (25%), and Wiki (25%).
     """
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
     ds_detailed = DetailedOcrSource()
+    ds_astrology = AstrologyDatasetSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed, ds_astrology])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
     num_detailed = len(ds_detailed)
-    total = num_hw + num_wiki + num_detailed
+    num_astrology = len(ds_astrology)
+    total = num_hw + num_wiki + num_detailed + num_astrology
     
-    # Target Sampling Ratio:
-    # Detailed OCR = 40%
-    # Handwriting OCR = 30%
-    # Thai Wiki = 30%
-    w_hw = (total * 0.30) / num_hw
-    w_wiki = (total * 0.30) / num_wiki
-    w_detailed = (total * 0.40) / num_detailed
+    # 25% target probability for each of the 4 datasets
+    w_hw = (total * 0.25) / num_hw
+    w_wiki = (total * 0.25) / num_wiki
+    w_detailed = (total * 0.25) / num_detailed
+    w_astrology = (total * 0.25) / num_astrology
     
     weights = (
         [w_hw] * num_hw + 
         [w_wiki] * num_wiki + 
-        [w_detailed] * num_detailed
+        [w_detailed] * num_detailed +
+        [w_astrology] * num_astrology
     )
     sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
     
     print(f"Balanced Sampler Active:")
-    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 40%)")
-    print(f" - Handwriting: {num_hw} rows (Sample weight: 30%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 30%)")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 25%)")
+    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 25%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: 25%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 25%)")
 
     return DataLoader(
         master_ds, 
