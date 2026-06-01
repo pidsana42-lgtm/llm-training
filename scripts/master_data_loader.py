@@ -59,7 +59,12 @@ class HandwritingSource(JommarnMasterDataset):
     def __getitem__(self, idx):
         item = self.data[idx]
         img = self.transform(item["image"].convert("RGB"))
-        tokens = self.tokenize(item["text"])
+        
+        # Wrap raw OCR text in the unified QA template
+        prompt = "จงถอดความลายมือในรูปภาพนี้"
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {item['text']}"
+        tokens = self.tokenize(text_format)
+        
         return img, tokens, tokens # img, input_ids, targets
 
 class WikiSource(JommarnMasterDataset):
