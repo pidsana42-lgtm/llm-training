@@ -154,7 +154,7 @@ for step in pbar:
         if step > 0 and step % config['t_eval_steps'] == 0:
             torch.save(inner_model.state_dict(), config['t_out_path'].replace(".pt", f"_step_{step}.pt"))
             
-        if step > 0 and step % 100 == 0 and hf_repo:
+        if step > 0 and step % 50 == 0 and hf_repo:
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
             torch.save({
                 'model_state_dict': inner_model.state_dict(),
