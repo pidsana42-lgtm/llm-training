@@ -7,7 +7,7 @@ from src.models.transformer import JommarnOmni as Transformer
 import argparse
 import os
 
-def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8):
+def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8, img_size=448):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -20,7 +20,8 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_
         context_length=context_length, 
         vocab_size=vocab_size, 
         N_BLOCKS=n_blocks,
-        n_kv_head=n_kv_head
+        n_kv_head=n_kv_head,
+        img_size=img_size
     )
     
     checkpoint = torch.load(model_path, map_location=device)
@@ -43,13 +44,13 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_
     image_tensor = None
     if image_path and os.path.exists(image_path):
         transform = transforms.Compose([
-            transforms.Resize((224, 224)),
+            transforms.Resize((img_size, img_size)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         image = Image.open(image_path).convert('RGB')
-        image_tensor = transform(image).unsqueeze(0).to(device) # (1, 3, 224, 224)
-        print(f"Vision Mode: Image '{image_path}' attached.")
+        image_tensor = transform(image).unsqueeze(0).to(device) # (1, 3, img_size, img_size)
+        print(f"Vision Mode: Image '{image_path}' attached (resized to {img_size}x{img_size}).")
     else:
         print("Text-Only Mode: No image attached.")
 
@@ -169,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_new_tokens", type=int, default=300, help="Maximum tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature (lower = more focused)")
     parser.add_argument("--n_kv_head", type=int, default=2, help="Number of KV heads (GQA)")
+    parser.add_argument("--img_size", type=int, default=448, help="Image size (default 448)")
 
     args = parser.parse_args()
     test_omni(
@@ -177,5 +179,6 @@ if __name__ == "__main__":
         args.prompt, 
         max_new_tokens=args.max_new_tokens, 
         temperature=args.temperature,
-        n_kv_head=args.n_kv_head
+        n_kv_head=args.n_kv_head,
+        img_size=args.img_size
     )

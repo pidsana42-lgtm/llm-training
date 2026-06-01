@@ -10,7 +10,7 @@ def precompute_rope_freqs(head_size: int, context_length: int, theta: float = 10
     """
     d_rope = head_size // 2
     freqs = 1.0 / (theta ** (torch.arange(0, d_rope, 2).float() / d_rope))
-    t = torch.arange(context_length + 256) # Increased context for Vision tokens
+    t = torch.arange(context_length + 1024) # Increased context for 448x448 Vision tokens (784 patches)
     freqs = torch.outer(t, freqs)
     return torch.cos(freqs), torch.sin(freqs)
 
@@ -19,9 +19,9 @@ class JommarnOmni(nn.Module):
     Jommarn-Omni: A Native Multimodal (Vision-Text) Model.
     
     Combines Jommarn-Tiny (Thinker) with Jommarn-Vision (Encoder).
-    Total Parameters: ~16.5M
+    Total Parameters: ~16.5M (original) / ~469M (configured)
     """
-    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int, n_kv_head: int = 2) -> None:
+    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int, n_kv_head: int = 2, img_size: int = 448) -> None:
         super().__init__()
         self.context_length = context_length
         self.N_BLOCKS = N_BLOCKS
@@ -29,12 +29,12 @@ class JommarnOmni(nn.Module):
         self.head_size = n_embed // n_head
         
         # 1. Vision Encoder (Scratch)
-        self.vision_encoder = JommarnVisionEncoder(n_head=n_head, n_embed=n_embed)
+        self.vision_encoder = JommarnVisionEncoder(img_size=img_size, n_head=n_head, n_embed=n_embed)
         
         # 2. Text Thinker
         self.token_embed = nn.Embedding(vocab_size, n_embed)
         self.attn_blocks = nn.ModuleList([
-            Block(n_head, n_embed, context_length + 256, layer_id=i, n_kv_head=n_kv_head) 
+            Block(n_head, n_embed, context_length + 1024, layer_id=i, n_kv_head=n_kv_head) 
             for i in range(N_BLOCKS)
         ])
         
@@ -198,7 +198,7 @@ if __name__ == '__main__':
     # Test Multimodal Forward (GQA 485M Model Config)
     model = JommarnOmni(n_head=12, n_embed=768, context_length=128, vocab_size=262144, N_BLOCKS=22, n_kv_head=2)
     idx = torch.randint(0, 262144, (1, 10))
-    img = torch.randn(1, 3, 224, 224)
+    img = torch.randn(1, 3, 448, 448)
     logits, _ = model(idx, images=img)
     print(f"Logits shape with Vision (GQA): {logits.shape}")
     print(f"Jommarn-Omni Total Parameters: {sum(p.numel() for p in model.parameters()):,}")

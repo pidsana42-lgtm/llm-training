@@ -18,7 +18,7 @@ class JommarnMasterDataset(Dataset):
     2. Thai Handwriting (Vision + Text)
     3. Appen Thai Document OCR (Vision + Text)
     """
-    def __init__(self, tokenizer_path="tokenizer.json", img_size=224, mode="multimodal"):
+    def __init__(self, tokenizer_path="tokenizer.json", img_size=448, mode="multimodal"):
         self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=tokenizer_path)
         
         # Gemma tokenizer usually doesn't have a default pad token set in the json
