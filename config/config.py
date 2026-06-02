@@ -9,9 +9,9 @@ VOCAB_SIZE = 152064         # ปรับให้เข้ากับ Typhoon
 CONTEXT_LENGTH = 4096       
 N_EMBED = 768               
 N_HEAD = 12                  
-N_BLOCKS = 22               
+N_BLOCKS = 32               # เพิ่มสมองเป็น 32 ชั้น (เทียบเท่าความลึกของ LLaMA/Mistral)
 N_KV_HEADS = 2              # 2 KV Heads (GQA 6:1 Ratio)
-V_LAYERS = 12               # เพิ่มจำนวนชั้น (Depth) ของ Vision Encoder ให้ฉลาดขึ้น
+V_LAYERS = 16               # เพิ่มตาเป็น 16 ชั้น (มาตรฐาน ViT-Large)
 
 # Paths
 TRAIN_PATH = "data/train/pile_train.h5"
