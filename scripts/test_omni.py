@@ -72,6 +72,11 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
         print("Text-Only Mode: No image attached.")
 
     # 4. Process Text
+    # If the user didn't provide a chat template, wrap it automatically
+    if "ผู้ใช้:" not in prompt and "ผู้ช่วย:" not in prompt:
+        prompt = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: "
+        print(f"Auto-formatted prompt: {prompt.strip()}")
+        
     input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).unsqueeze(0)
 
     # 5. Generate with Advanced Sampling (Temperature, Top-k, Top-p)
