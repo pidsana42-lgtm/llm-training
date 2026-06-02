@@ -60,7 +60,8 @@ else:
     if os.path.exists(local_checkpoint_path):
         print(f"Resuming training from checkpoint: {local_checkpoint_path}")
         try:
-            checkpoint = torch.load(local_checkpoint_path, map_location=config['device'])
+            # ✅ เพิ่ม weights_only=False เพื่อให้โหลด Optimizer/Scheduler ได้ใน PyTorch 2.6+
+            checkpoint = torch.load(local_checkpoint_path, map_location=config['device'], weights_only=False)
             state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
             
             # Load state dict with handling for module prefix
@@ -95,7 +96,8 @@ scheduler = get_lr_scheduler(optimizer, warmup_steps=2000, total_steps=config['t
 
 if not force_reset and os.path.exists(local_checkpoint_path):
     try:
-        checkpoint = torch.load(local_checkpoint_path, map_location=config['device'])
+        # ✅ เพิ่ม weights_only=False เช่นกัน
+        checkpoint = torch.load(local_checkpoint_path, map_location=config['device'], weights_only=False)
         if 'optimizer_state_dict' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if 'scheduler_state_dict' in checkpoint:
