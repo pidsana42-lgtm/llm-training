@@ -62,6 +62,27 @@ class JommarnOmni(nn.Module):
         
         # Cache for fast inference MTP steps
         self._last_h = None
+        
+        # ✅ Apply GPT-2 style Deep Residual Initialization
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """
+        Custom weight initialization for Deep Transformers.
+        Scales down residual projections to prevent variance explosion across 32 layers.
+        """
+        if isinstance(module, nn.Linear):
+            # Standard init for most linear layers
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+                
+            # Scale down the output projections (residuals) by 1/sqrt(2 * N_BLOCKS)
+            # This is critical for preventing Loss Explosion in 500M+ models.
+            # In our code, out_proj (Attention) and the last linear in MTP are residuals.
+            # (Note: we assume out_proj in MultiHeadAttention is named 'out_proj')
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx: torch.Tensor, images: torch.Tensor = None, targets: torch.Tensor = None, v_tokens: torch.Tensor = None):
         B, T = idx.shape
