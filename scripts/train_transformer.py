@@ -155,7 +155,8 @@ for step in pbar:
         if step > 0 and step % config['t_eval_steps'] == 0:
             torch.save(inner_model.state_dict(), config['t_out_path'].replace(".pt", f"_step_{step}.pt"))
             
-        if step > 0 and step % 50 == 0 and hf_repo:
+        # --- Checkpoint Save (ทุก 50 steps ลงดิสก์เครื่อง Cloud) ---
+        if step > 0 and step % 50 == 0:
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
             torch.save({
                 'model_state_dict': inner_model.state_dict(),
@@ -163,6 +164,9 @@ for step in pbar:
                 'steps': step,
                 'losses': losses
             }, temp_checkpoint)
+
+        # --- HuggingFace Sync (ทุก 500 steps เพื่อไม่เสีย GPU Time ไปกับการอัปโหลด) ---
+        if step > 0 and step % 500 == 0 and hf_repo:
             try:
                 from scripts.push_to_hf import push_to_hub
                 push_to_hub(repo_id=hf_repo, model_path=temp_checkpoint)
