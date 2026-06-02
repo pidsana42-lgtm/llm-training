@@ -35,15 +35,16 @@
 
 ---
 
-## 📚 ชุดข้อมูลการเรียนรู้ (5-Way Balanced Dataset)
+## 📚 ชุดข้อมูลการเรียนรู้ (6-Way Balanced Dataset + Distillation)
 
-เราจัดสัดส่วนการสุ่มเรียนรู้ (Sampling Weight) ไว้ที่ **อย่างละ 20%** เพื่อหลอมรวมทักษะของโมเดลให้สมดุล:
+เราจัดสัดส่วนการสุ่มเรียนรู้ (Sampling Weight) ไว้ใหม่ โดยเน้นให้ความสำคัญกับ "เฉลยจากครู" ในช่วงต้น เพื่อดึง Loss ให้ลงเร็วที่สุด:
 
-1.  **Detailed OCR & CoT (`Phonsiri/handwrite-ocr-detailed`):** 167 แถวคุณภาพสูง สอนกระบวนการคิดวิเคราะห์ก่อนตอบคู่กับแท็ก `<think>`, การบรรยายรูปภาพภาษาไทยและภาษาอังกฤษอย่างละเอียด
-2.  **Astrology & Document Layout (`Phonsiri/astrology-dataset-clean`):** 672 แถว สอนการอ่านหน้าเอกสาร/ภาพอินโฟกราฟิก, ถอดข้อความ OCR, ทำความเข้าใจโครงสร้างเว็บไซต์ (Header, Hero Image, Content) และจัดหมวดหมู่ข้อมูล
-3.  **COCO Thai General Understanding (`Phonsiri/coco-thai-gemma4-detailed`):** 1.85k แถว สอนความเข้าใจภาพถ่ายธรรมชาติและชีวิตประจำวันทั่วไปผ่านระบบคำบรรยายไทยและอังกฤษที่ได้รับการทำความสะอาดขจัดข้อความรบกวนอัตโนมัติ
-4.  **Handwriting OCR (`iapp/thai_handwriting_dataset`):** ~13,600 แถว สอนพื้นฐานการแปลงลายมือไทยเป็นตัวอักษร โดยห่อหุ้มในรูปแบบสนทนาผู้ใช้-ผู้ช่วย
-5.  **Thai Wikipedia (`pythainlp/thai-wiki-dataset-v3`):** ~900,000 แถว สอนโครงสร้างคำศัพท์ภาษาไทยทั่วไป ป้องกันโมเดลลืมภาษาไทย (Catastrophic Forgetting)
+1.  **Distillation Warmup Data:** 40% (ข้อมูลที่สร้างล่วงหน้าโดยใช้ `Typhoon-OCR-7B` เป็นครู เพื่อสอนโมเดลตาบอดให้อ่านออกอย่างรวดเร็ว)
+2.  **Detailed OCR & CoT (`Phonsiri/handwrite-ocr-detailed`):** 12% (บรรยายภาพและกระบวนการคิด)
+3.  **Astrology & Document Layout (`Phonsiri/astrology-dataset-clean`):** 12% (เอกสารและอินโฟกราฟิก)
+4.  **COCO Thai General Understanding (`Phonsiri/coco-thai-gemma4-detailed`):** 12% (ภาพทั่วไป)
+5.  **Handwriting OCR (`iapp/thai_handwriting_dataset`):** 12% (ลายมือไทย)
+6.  **Thai Wikipedia (`pythainlp/thai-wiki-dataset-v3`):** 12% (ป้องกันโมเดลลืมภาษาไทย)
 
 ---
 
@@ -53,14 +54,20 @@
 ให้สั่งดึงตัวแก้ไขล่าสุดจากบน Cloud GPU เซิร์ฟเวอร์ของคุณ:
 ```bash
 git pull origin main
+pip install qwen-vl-utils accelerate
 ```
 
-### 2. บังคับเคลียร์สถานะสำหรับการเทรนสเปกใหม่ (~501M & Typhoon Tokenizer)
-เนื่องจากเราอัปเกรดสเปกขึ้นเป็นระดับสูงสุด (32 Blocks สมอง, 16 Blocks ตา) **ต้องบังคับรันจากศูนย์ใหม่ที่ Step 0** ด้วยคำสั่ง:
+### 2. สร้างคัมภีร์ข้อมูล Distillation จากครู (Offline Generation)
+สั่งให้ `Typhoon-OCR-7B` วิเคราะห์รูปภาพ 1,000 ภาพแรกเพื่อทำเฉลย (รันรอบเดียวทิ้งไว้):
 ```bash
-FORCE_RESET=1 python scripts/train_transformer.py
+python scripts/create_distillation_dataset.py
 ```
-*(ระบบจะล้างข้อมูลเดิมและสร้างโมเดล ~501M ตัวล่าสุดขึ้นมาเรียนรู้ใหม่ทันที)*
+
+### 3. รันเทรน 501M ด้วยระบบ Distillation
+หลังจากสร้างเฉลยเสร็จ ให้เริ่มรันโมเดล 501M ต่อได้เลย (ไฟล์ Data Loader จะอ่านไฟล์ JSONL เฉลยให้อัตโนมัติและเกลี่ยน้ำหนักให้ 40%):
+```bash
+FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+```
 
 ### 3. การทดสอบการมองเห็นและเจนคำตอบ (Inference)
 หลังจากเทรนผ่านไปแล้ว คุณสามารถทดสอบความเร็วของการเจน 512x512 4-Token MTP ได้ด้วยสคริปต์จำลอง:
