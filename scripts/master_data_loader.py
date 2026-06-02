@@ -338,18 +338,27 @@ class JusciWebsiteSource(JommarnMasterDataset):
 class WangchanLionWebSource(JommarnMasterDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        print("Loading WangchanLION-Web Dataset (~19.8M rows)...")
-        # Streaming is recommended for 19.8M rows if not fully downloaded, but load_dataset works if space allows.
-        # We use split='train'
-        self.data = load_dataset("aisingapore/WangchanLION-Web", split="train")
+        print("Loading WangchanLION-Web Dataset via STREAMING (to save disk space)...")
+        # Use streaming=True to prevent 48GB disk download
+        self.dataset_stream = load_dataset("aisingapore/WangchanLION-Web", split="train", streaming=True)
+        self.iterable_data = iter(self.dataset_stream)
+        # Fake length so WeightedRandomSampler can still assign probability weight
+        self.fake_length = 5000000 
 
     def __len__(self):
-        return len(self.data)
+        return self.fake_length
 
     def __getitem__(self, idx):
         # Text-only dataset, so image is a dummy zero tensor
         img = torch.zeros(3, self.img_size, self.img_size)
-        item = self.data[idx]
+        
+        # Ignore idx, just pull the next item from the stream
+        try:
+            item = next(self.iterable_data)
+        except StopIteration:
+            # If we somehow hit the end, restart the stream
+            self.iterable_data = iter(self.dataset_stream)
+            item = next(self.iterable_data)
         
         # General web text format
         prompt = "จงอ่านข้อความทั่วไปจากอินเทอร์เน็ต"
