@@ -87,19 +87,24 @@ def generate_teacher_response(model, processor, device, image_pil):
     except json.JSONDecodeError:
         return text_output
 
-def create_distillation_dataset():
+import argparse
+
+def create_distillation_dataset(is_test=False):
     model, processor, device = setup_teacher()
     
     print("Loading datasets to distill...")
-    # We will pick a mix of datasets to distill (e.g. 500 images from each to create a 1000-image warmup set)
+    # If testing, just do 2 samples. Otherwise 500 each.
+    samples_per_ds = 2 if is_test else 500
     datasets_to_process = [
-        ("Phonsiri/handwrite-ocr-detailed", 500),
-        ("Phonsiri/astrology-dataset-clean", 500)
+        ("Phonsiri/handwrite-ocr-detailed", samples_per_ds),
+        ("Phonsiri/astrology-dataset-clean", samples_per_ds)
     ]
     
     out_dir = os.path.join(os.path.dirname(__file__), "..", "data")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "distilled_warmup_data.jsonl")
+    
+    filename = "distilled_warmup_data_test.jsonl" if is_test else "distilled_warmup_data.jsonl"
+    out_path = os.path.join(out_dir, filename)
     
     print(f"Generating distilled data to {out_path}...")
     
@@ -141,4 +146,7 @@ def create_distillation_dataset():
     print(f"Successfully generated {item_id} distilled training pairs!")
 
 if __name__ == "__main__":
-    create_distillation_dataset()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", action="store_true", help="Run a quick test with 2 samples")
+    args = parser.parse_args()
+    create_distillation_dataset(is_test=args.test)
