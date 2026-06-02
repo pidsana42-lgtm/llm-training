@@ -72,9 +72,9 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
         print("Text-Only Mode: No image attached.")
 
     # 4. Process Text
-    # If the user didn't provide a chat template, wrap it automatically
-    if "ผู้ใช้:" not in prompt and "ผู้ช่วย:" not in prompt:
-        prompt = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: "
+    # If the user didn't provide a chat template, wrap it automatically using unicode escapes to avoid encoding issues
+    if "\u0e1c\u0e39\u0e49\u0e43\u0e0a\u0e49:" not in prompt and "\u0e1c\u0e39\u0e49\u0e0a\u0e48\u0e27\u0e22:" not in prompt:
+        prompt = f"\u0e1c\u0e39\u0e49\u0e43\u0e0a\u0e49: {prompt}\n\n\u0e1c\u0e39\u0e49\u0e0a\u0e48\u0e27\u0e22: "
         print(f"Auto-formatted prompt: {prompt.strip()}")
         
     input_ids = torch.tensor(tokenizer.encode(prompt), dtype=torch.long, device=device).unsqueeze(0)
