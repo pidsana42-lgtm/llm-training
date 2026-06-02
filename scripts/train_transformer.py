@@ -91,7 +91,7 @@ def get_lr_scheduler(optimizer, warmup_steps, total_steps):
     
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-scheduler = get_lr_scheduler(optimizer, warmup_steps=1000, total_steps=config['t_train_steps'])
+scheduler = get_lr_scheduler(optimizer, warmup_steps=2000, total_steps=config['t_train_steps'])  # ยืด Warmup 2x เพื่อความเสถียรและกัน Loss Spike
 
 if not force_reset and os.path.exists(local_checkpoint_path):
     try:
@@ -152,7 +152,7 @@ for step in pbar:
 
         # Gradient Clipping & Optimizer Step
         scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)  # เข์มแน่นขึ้น 0.5 เพื่อกัน Gradient Explosion
         scaler.step(optimizer)
         scaler.update()
         scheduler.step()  # ✅ อัปเดต LR ทุก Step (Warmup → Cosine Decay)
