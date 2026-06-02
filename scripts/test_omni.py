@@ -43,6 +43,17 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
             new_state_dict[k] = v
             
     model.load_state_dict(new_state_dict)
+    
+    # FREE MEMORY: Delete checkpoint containing heavy optimizer states
+    del checkpoint
+    del state_dict
+    del new_state_dict
+    torch.cuda.empty_cache()
+    
+    # CAST TO BFLOAT16 to cut VRAM usage in half!
+    if device == 'cuda':
+        model = model.bfloat16()
+        
     model.to(device)
     model.eval()
 
