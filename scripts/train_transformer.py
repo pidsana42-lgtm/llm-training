@@ -19,7 +19,8 @@ model = Transformer(
     context_length=config['context_length'],
     vocab_size=config['vocab_size'],
     N_BLOCKS=config['n_blocks'],
-    n_kv_head=config['n_kv_heads']
+    n_kv_head=config['n_kv_heads'],
+    v_layers=config.get('v_layers', 12)
 )
 
 # Multi-GPU Support
