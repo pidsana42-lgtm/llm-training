@@ -122,7 +122,21 @@ def create_distillation_dataset(is_test=False):
                 img = item["image"]
                 
                 try:
-                    teacher_text = generate_teacher_response(model, processor, device, img)
+                    # Extract raw markdown from Typhoon
+                    raw_markdown = generate_teacher_response(model, processor, device, img)
+                    
+                    # 🔥 MAGIC HERE: Wrap it in a clean JSON format for our model to learn!
+                    # We can design ANY JSON schema we want Jommarn-Omni to answer in.
+                    final_json_target = {
+                        "status": "success",
+                        "response_type": "ocr_extraction",
+                        "data": {
+                            "content": raw_markdown
+                        }
+                    }
+                    
+                    # Convert the dict to a formatted JSON string (this will be what Jommarn learns to output)
+                    teacher_text_json_string = json.dumps(final_json_target, ensure_ascii=False, indent=2)
                     
                     # Save the image locally to keep it paired with the text
                     img_filename = f"distill_{item_id}.jpg"
@@ -135,7 +149,7 @@ def create_distillation_dataset(is_test=False):
                         "id": item_id,
                         "source": ds_name,
                         "image_path": img_save_path,
-                        "teacher_text": teacher_text
+                        "teacher_text": teacher_text_json_string
                     }
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
                     f.flush()
