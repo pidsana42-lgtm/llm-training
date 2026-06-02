@@ -245,49 +245,94 @@ class CocoThaiDetailedSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format, max_len=512)
         return img, tokens, tokens
 
+class DistillationSource(JommarnMasterDataset):
+    """
+    Teacher Distillation Dataset (Warmup Data)
+    Reads from the pre-generated JSONL file containing Typhoon-OCR-7B responses.
+    """
+    def __init__(self, data_path="data/distilled_warmup_data.jsonl", **kwargs):
+        super().__init__(**kwargs)
+        print(f"Loading Distillation Dataset from {data_path}...")
+        self.items = []
+        if os.path.exists(data_path):
+            with open(data_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        self.items.append(json.loads(line))
+        else:
+            print(f"⚠️ Warning: Distillation file not found at {data_path}. Please run create_distillation_dataset.py first.")
+
+    def __len__(self):
+        return len(self.items) if self.items else 1 # Avoid division by zero
+
+    def __getitem__(self, idx):
+        if not self.items:
+            # Fallback if file doesn't exist yet
+            img = torch.zeros(3, self.img_size, self.img_size)
+            tokens = self.tokenize("ผู้ใช้: จงวิเคราะห์ภาพนี้\n\nผู้ช่วย: ยังไม่มีข้อมูล Distillation")
+            return img, tokens, tokens
+            
+        item = self.items[idx]
+        try:
+            img = self.transform(Image.open(item["image_path"]).convert("RGB"))
+        except Exception:
+            img = torch.zeros(3, self.img_size, self.img_size)
+            
+        prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
+        target = item["teacher_text"]
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16):
     """
     Creates a combined loader that samples from all sources in a BALANCED way.
-    Balances across 5 sources: Detailed OCR (20%), Astrology Layout (20%), COCO General (20%), Handwriting OCR (20%), and Wiki (20%).
+    Balances across 6 sources, heavily weighting Distillation during warmup.
     """
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
     ds_detailed = DetailedOcrSource()
     ds_astrology = AstrologyDatasetSource()
     ds_coco = CocoThaiDetailedSource()
+    ds_distill = DistillationSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed, ds_astrology, ds_coco])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_detailed, ds_astrology, ds_coco, ds_distill])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
     num_detailed = len(ds_detailed)
     num_astrology = len(ds_astrology)
     num_coco = len(ds_coco)
-    total = num_hw + num_wiki + num_detailed + num_astrology + num_coco
+    num_distill = len(ds_distill)
+    total = num_hw + num_wiki + num_detailed + num_astrology + num_coco + num_distill
     
-    # 20% target probability for each of the 5 datasets
-    w_hw = (total * 0.20) / num_hw
-    w_wiki = (total * 0.20) / num_wiki
-    w_detailed = (total * 0.20) / num_detailed
-    w_astrology = (total * 0.20) / num_astrology
-    w_coco = (total * 0.20) / num_coco
+    # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
+    w_hw = (total * 0.12) / max(1, num_hw)
+    w_wiki = (total * 0.12) / max(1, num_wiki)
+    w_detailed = (total * 0.12) / max(1, num_detailed)
+    w_astrology = (total * 0.12) / max(1, num_astrology)
+    w_coco = (total * 0.12) / max(1, num_coco)
+    w_distill = (total * 0.40) / max(1, num_distill) # 40% for Warmup Distillation!
     
     weights = (
         [w_hw] * num_hw + 
         [w_wiki] * num_wiki + 
         [w_detailed] * num_detailed +
         [w_astrology] * num_astrology +
-        [w_coco] * num_coco
+        [w_coco] * num_coco +
+        [w_distill] * num_distill
     )
     sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
     
     print(f"Balanced Sampler Active:")
-    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 20%)")
-    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 20%)")
-    print(f" - COCO General: {num_coco} rows (Sample weight: 20%)")
-    print(f" - Handwriting: {num_hw} rows (Sample weight: 20%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
+    print(f" - Distillation (Teacher Data): {num_distill} rows (Sample weight: 40%)")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 12%)")
+    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 12%)")
+    print(f" - COCO General: {num_coco} rows (Sample weight: 12%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: 12%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 12%)")
 
     return DataLoader(
         master_ds, 
