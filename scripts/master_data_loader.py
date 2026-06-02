@@ -116,20 +116,36 @@ class DetailedOcrSource(JommarnMasterDataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        img = self.transform(item["image"].convert("RGB"))
         
-        # Randomly select a task to train all relationships
-        task = random.choice(["ocr_only", "caption_th", "caption_en", "thinking_ocr"])
+        # Optimization: Skip image loading if in text-only mode
+        is_text_only = getattr(self, 'mode', 'multimodal') == 'text_only'
+        if is_text_only:
+            img = torch.zeros(3, self.img_size, self.img_size)
+        else:
+            try:
+                img = self.transform(item["image"].convert("RGB"))
+            except Exception:
+                img = torch.zeros(3, self.img_size, self.img_size)
+        
+        # Select tasks based on mode
+        if is_text_only:
+            # User requested to exclude OCR column in text-only mode
+            task = random.choice(["caption_th", "caption_en", "think_only"])
+        else:
+            task = random.choice(["ocr_only", "caption_th", "caption_en", "thinking_ocr"])
         
         if task == "ocr_only":
             prompt = "จงอ่านข้อความทั้งหมดที่ปรากฏอยู่ในภาพนี้"
             target = item["ocr_text"]
         elif task == "caption_th":
-            prompt = "จงอธิบายรายละเอียดของภาพนี้อย่างละเอียด"
+            prompt = "จงอธิบายรายละเอียดของภาพหรือเอกสารนี้อย่างละเอียด"
             target = item["detailed_caption_thai"]
         elif task == "caption_en":
-            prompt = "Describe the details of this image in English."
+            prompt = "Describe the details of this image or document in English."
             target = item["detailed_caption_en"]
+        elif task == "think_only":
+            prompt = "จงวิเคราะห์โครงสร้างของภาพนี้ทีละขั้นตอน"
+            target = f"<think>\n{item.get('think_process', '')}\n</think>\n\nสรุป: {item.get('detailed_caption_thai', '')}"
         else: # thinking_ocr
             prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
             target = (
@@ -380,32 +396,36 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         ds_jusci = JusciWebsiteSource(mode="text_only")
         ds_wangchan = WangchanLionWebSource(mode="text_only")
         ds_coco_text = CocoThaiDetailedSource(mode="text_only")
+        ds_detailed_text = DetailedOcrSource(mode="text_only")
         
-        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text])
+        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text, ds_detailed_text])
         
         num_wiki = len(ds_wiki)
         num_oldbooks = len(ds_oldbooks)
         num_jusci = len(ds_jusci)
         num_wangchan = len(ds_wangchan)
         num_coco = len(ds_coco_text)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco
+        num_detailed = len(ds_detailed_text)
+        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco + num_detailed
         
         # Weight distribution: WangchanLION has 19.8M rows (Web Text)
-        w_wangchan = (total_text * 0.60) / max(1, num_wangchan) # 60% Web Text
+        w_wangchan = (total_text * 0.55) / max(1, num_wangchan) # 55% Web Text
         w_wiki = (total_text * 0.20) / max(1, num_wiki)         # 20% Wiki
         w_jusci = (total_text * 0.10) / max(1, num_jusci)       # 10% Science News
         w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks) # 5% Old Books
         w_coco = (total_text * 0.05) / max(1, num_coco)         # 5% COCO Image Descriptions
+        w_detailed = (total_text * 0.05) / max(1, num_detailed) # 5% Detailed Handwriting Logic
         
-        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco
+        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco + [w_detailed] * num_detailed
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 60%)")
+        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 55%)")
         print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
         print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 10%)")
         print(f" - COCO Descriptions: {num_coco} rows (Sample weight: 5%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
+        print(f" - Handwriting Logic (No OCR): {num_detailed} rows (Sample weight: 5%)")
         
         return DataLoader(
             master_ds_text, 
