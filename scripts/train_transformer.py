@@ -124,6 +124,7 @@ print(f"Gradient Accumulation: {grad_accum_steps} steps (Effective batch size: {
 pbar = tqdm(range(start_step, config['t_train_steps']))
 train_iter = iter(train_loader)
 inner_model = model.module if hasattr(model, 'module') else model
+local_step = 0  # นับ Steps จากการ Resume เพื่อกันอัปโหลดทันที
 
 for step in pbar:
     optimizer.zero_grad(set_to_none=True)
@@ -158,13 +159,14 @@ for step in pbar:
         
         losses.append(accum_loss)
         pbar.set_description(f"Loss: {np.mean(losses[-AVG_WINDOW:]):.4f}")
+        local_step += 1
 
         # Checkpoints & Hub Sync
         if step > 0 and step % config['t_eval_steps'] == 0:
             torch.save(inner_model.state_dict(), config['t_out_path'].replace(".pt", f"_step_{step}.pt"))
             
         # --- Checkpoint Save (ทุก 50 steps ลงดิสก์เครื่อง Cloud) ---
-        if step > 0 and step % 50 == 0:
+        if local_step > 0 and local_step % 50 == 0:
             temp_checkpoint = config['t_out_path'].replace(".pt", "_latest.pt")
             torch.save({
                 'model_state_dict': inner_model.state_dict(),
@@ -174,8 +176,8 @@ for step in pbar:
                 'losses': losses
             }, temp_checkpoint)
 
-        # --- HuggingFace Sync (ทุก 500 steps เพื่อไม่เสีย GPU Time ไปกับการอัปโหลด) ---
-        if step > 0 and step % 500 == 0 and hf_repo:
+        # --- HuggingFace Sync (ทุก 500 steps เพื่อไม่เสีย GPU Time) ---
+        if local_step > 0 and local_step % 500 == 0 and hf_repo:
             try:
                 from scripts.push_to_hf import push_to_hub
                 push_to_hub(repo_id=hf_repo, model_path=temp_checkpoint)
