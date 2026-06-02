@@ -306,6 +306,27 @@ class ThaiOldBooksSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class JusciWebsiteSource(JommarnMasterDataset):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Jusci Science News Dataset...")
+        self.data = load_dataset("pythainlp/jusci-website", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        # Text-only dataset, so image is a dummy zero tensor
+        img = torch.zeros(3, self.img_size, self.img_size)
+        item = self.data[idx]
+        
+        # Add a nice format so the model learns news/article structures
+        prompt = f"ข่าววิทยาศาสตร์เรื่อง: {item.get('title', 'ไม่ทราบชื่อเรื่อง')}"
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {item.get('content', '')}"
+        
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16, phase="multimodal"):
     """
     Creates a combined loader.
@@ -316,23 +337,26 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         print("🚀 PHASE 1: TEXT ONLY (Language Pre-training)")
         ds_wiki = WikiSource()
         ds_oldbooks = ThaiOldBooksSource()
+        ds_jusci = JusciWebsiteSource()
         
-        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks])
+        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci])
         
         num_wiki = len(ds_wiki)
         num_oldbooks = len(ds_oldbooks)
-        total_text = num_wiki + num_oldbooks
+        num_jusci = len(ds_jusci)
+        total_text = num_wiki + num_oldbooks + num_jusci
         
-        # We give Old Books 5% weight because it only has 75 rows but very long text
-        # If we just do proportional, it's 0.07%, which is too small.
-        w_wiki = (total_text * 0.95) / max(1, num_wiki)
+        # Weight distribution to heavily dilute Wikipedia's royal/temple bias
+        w_wiki = (total_text * 0.85) / max(1, num_wiki)
         w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks)
+        w_jusci = (total_text * 0.10) / max(1, num_jusci) # 10% for Science News
         
-        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks
+        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 95%)")
+        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 85%)")
+        print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 10%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
         
         return DataLoader(
@@ -348,27 +372,30 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
     ds_oldbooks = ThaiOldBooksSource()
+    ds_jusci = JusciWebsiteSource()
     ds_detailed = DetailedOcrSource()
     ds_astrology = AstrologyDatasetSource()
     ds_coco = CocoThaiDetailedSource()
     ds_distill = DistillationSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_oldbooks, ds_detailed, ds_astrology, ds_coco, ds_distill])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_detailed, ds_astrology, ds_coco, ds_distill])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
     num_oldbooks = len(ds_oldbooks)
+    num_jusci = len(ds_jusci)
     num_detailed = len(ds_detailed)
     num_astrology = len(ds_astrology)
     num_coco = len(ds_coco)
     num_distill = len(ds_distill)
-    total = num_hw + num_wiki + num_oldbooks + num_detailed + num_astrology + num_coco + num_distill
+    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_detailed + num_astrology + num_coco + num_distill
     
     # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
     w_hw = (total * 0.12) / max(1, num_hw)
-    w_wiki = (total * 0.10) / max(1, num_wiki)
+    w_wiki = (total * 0.08) / max(1, num_wiki)
     w_oldbooks = (total * 0.02) / max(1, num_oldbooks) # 2% for Old Books
+    w_jusci = (total * 0.02) / max(1, num_jusci) # 2% for Science News
     w_detailed = (total * 0.12) / max(1, num_detailed)
     w_astrology = (total * 0.12) / max(1, num_astrology)
     w_coco = (total * 0.12) / max(1, num_coco)
@@ -378,6 +405,7 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         [w_hw] * num_hw + 
         [w_wiki] * num_wiki + 
         [w_oldbooks] * num_oldbooks +
+        [w_jusci] * num_jusci +
         [w_detailed] * num_detailed +
         [w_astrology] * num_astrology +
         [w_coco] * num_coco +
@@ -391,7 +419,8 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 12%)")
     print(f" - COCO General: {num_coco} rows (Sample weight: 12%)")
     print(f" - Handwriting: {num_hw} rows (Sample weight: 12%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 10%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 8%)")
+    print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 2%)")
     print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 2%)")
 
     return DataLoader(
