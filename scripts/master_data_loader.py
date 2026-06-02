@@ -285,11 +285,25 @@ class DistillationSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
-def get_master_loader(batch_size=16):
+def get_master_loader(batch_size=16, phase="multimodal"):
     """
-    Creates a combined loader that samples from all sources in a BALANCED way.
-    Balances across 6 sources, heavily weighting Distillation during warmup.
+    Creates a combined loader.
+    If phase == 'text_only', it only loads Thai Wikipedia to pre-train the language model.
+    If phase == 'multimodal', it balances across all vision-language sources.
     """
+    if phase == "text_only":
+        print("🚀 PHASE 1: TEXT ONLY (Language Pre-training)")
+        ds_wiki = WikiSource()
+        return DataLoader(
+            ds_wiki, 
+            batch_size=batch_size, 
+            shuffle=True, # Wiki can just be shuffled directly
+            num_workers=2,
+            pin_memory=True
+        )
+        
+    # Phase 2: Multimodal Balanced Load
+    print("🌌 PHASE 2: MULTIMODAL ALIGNMENT")
     ds_hw = HandwritingSource()
     ds_wiki = WikiSource()
     ds_detailed = DetailedOcrSource()

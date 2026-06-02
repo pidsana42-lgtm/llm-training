@@ -116,7 +116,8 @@ AVG_WINDOW = 64
 
 # --- Multimodal Training Loop ---
 
-train_loader = get_master_loader(batch_size=config['t_batch_size'])
+train_phase = os.getenv("TRAIN_PHASE", "multimodal")
+train_loader = get_master_loader(batch_size=config['t_batch_size'], phase=train_phase)
 os.makedirs(os.path.dirname(config['t_out_path']), exist_ok=True)
 
 print(f"Starting Training on {config['device']} with physical batch size {config['t_batch_size']}...")
@@ -143,7 +144,12 @@ for step in pbar:
             # Shift tokens for next-token prediction
             xb = tokens[:, :-1].to(config['device'])
             yb = tokens[:, 1:].to(config['device'])
-            images = images.to(config['device'])
+            
+            # Skip Vision Encoder completely if in Phase 1 (Text-Only)
+            if train_phase == "text_only":
+                images = None
+            else:
+                images = images.to(config['device'])
 
             with torch.amp.autocast('cuda'):
                 logits, loss = model(xb, images=images, targets=yb)
