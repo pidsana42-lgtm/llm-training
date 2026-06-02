@@ -76,3 +76,8 @@ python scripts/test_omni.py \
 ---
 *วิวัฒนาการโดย Antigravity AI - Jommarn-Omni ~501M Engine*
 😈📸⚡
+
+pip install -r requirements.txt
+pip install datasets transformers huggingface_hub
+FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+export HF_TOKEN="your_hf_token_here"
