@@ -10,8 +10,9 @@ from transformers import PreTrainedTokenizerFast
 from src.models.transformer import JommarnOmni as Transformer
 import argparse
 import os
+from config.config import default_config as config
 
-def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_head=12, n_blocks=22, n_kv_head=2, context_length=4096, max_new_tokens=300, temperature=0.8, img_size=512):
+def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n_embed=config['n_embed'], n_head=config['n_head'], n_blocks=config['n_blocks'], n_kv_head=config['n_kv_heads'], context_length=config['context_length'], max_new_tokens=300, temperature=0.8, img_size=512, v_layers=config.get('v_layers', 12)):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -25,7 +26,8 @@ def test_omni(model_path, image_path, prompt, vocab_size=262144, n_embed=768, n_
         vocab_size=vocab_size, 
         N_BLOCKS=n_blocks,
         n_kv_head=n_kv_head,
-        img_size=img_size
+        img_size=img_size,
+        v_layers=v_layers
     )
     
     checkpoint = torch.load(model_path, map_location=device)
