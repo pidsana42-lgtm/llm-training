@@ -95,12 +95,19 @@ scheduler = get_lr_scheduler(optimizer, warmup_steps=1000, total_steps=config['t
 
 if not force_reset and os.path.exists(local_checkpoint_path):
     try:
-        # Re-load checkpoint specifically for optimizer
         checkpoint = torch.load(local_checkpoint_path, map_location=config['device'])
         if 'optimizer_state_dict' in checkpoint:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    except:
-        print("Warning: Could not load optimizer state, starting with fresh optimizer.")
+        if 'scheduler_state_dict' in checkpoint:
+            # ✅ โหลด Scheduler State กลับมาด้วย (แก้บั๊ก LR Reset)
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        else:
+            # ถ้า Checkpoint เก่าไม่มี scheduler state ให้เดิน scheduler ไปยัง step ปัจจุบัน
+            print(f"No scheduler state found, fast-forwarding scheduler to step {start_step}...")
+            for _ in range(start_step):
+                scheduler.step()
+    except Exception as e:
+        print(f"Warning: Could not load optimizer/scheduler state: {e}")
 
 losses = []
 AVG_WINDOW = 64
@@ -147,6 +154,7 @@ for step in pbar:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(optimizer)
         scaler.update()
+        scheduler.step()  # ✅ อัปเดต LR ทุก Step (Warmup → Cosine Decay)
         
         losses.append(accum_loss)
         pbar.set_description(f"Loss: {np.mean(losses[-AVG_WINDOW:]):.4f}")
@@ -161,6 +169,7 @@ for step in pbar:
             torch.save({
                 'model_state_dict': inner_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),  # ✅ บันทึก Scheduler State ด้วย
                 'steps': step,
                 'losses': losses
             }, temp_checkpoint)
