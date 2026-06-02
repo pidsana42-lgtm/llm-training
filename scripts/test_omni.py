@@ -30,7 +30,7 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
         v_layers=v_layers
     )
     
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     # Handle DataParallel or raw state_dict
     state_dict = checkpoint['model_state_dict'] if 'model_state_dict' in checkpoint else checkpoint
     
