@@ -202,7 +202,15 @@ class CocoThaiDetailedSource(JommarnMasterDataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        img = self.transform(item["image"].convert("RGB"))
+        
+        # Optimization: Skip image loading if in text-only mode
+        if getattr(self, 'mode', 'multimodal') == 'text_only':
+            img = torch.zeros(3, self.img_size, self.img_size)
+        else:
+            try:
+                img = self.transform(item["image"].convert("RGB"))
+            except Exception:
+                img = torch.zeros(3, self.img_size, self.img_size)
         
         # Clean candidates
         th_detailed = self._clean_text(item.get("detailed_caption_thai"))
@@ -358,33 +366,36 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     """
     if phase == "text_only":
         print("🚀 PHASE 1: TEXT ONLY (Language Pre-training)")
-        ds_wiki = WikiSource()
-        ds_oldbooks = ThaiOldBooksSource()
-        ds_jusci = JusciWebsiteSource()
-        ds_wangchan = WangchanLionWebSource()
+        ds_wiki = WikiSource(mode="text_only")
+        ds_oldbooks = ThaiOldBooksSource(mode="text_only")
+        ds_jusci = JusciWebsiteSource(mode="text_only")
+        ds_wangchan = WangchanLionWebSource(mode="text_only")
+        ds_coco_text = CocoThaiDetailedSource(mode="text_only")
         
-        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan])
+        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text])
         
         num_wiki = len(ds_wiki)
         num_oldbooks = len(ds_oldbooks)
         num_jusci = len(ds_jusci)
         num_wangchan = len(ds_wangchan)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan
+        num_coco = len(ds_coco_text)
+        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco
         
         # Weight distribution: WangchanLION has 19.8M rows (Web Text)
-        # This will completely fix the Wikipedia bias!
         w_wangchan = (total_text * 0.60) / max(1, num_wangchan) # 60% Web Text
-        w_wiki = (total_text * 0.25) / max(1, num_wiki)         # 25% Wiki
+        w_wiki = (total_text * 0.20) / max(1, num_wiki)         # 20% Wiki
         w_jusci = (total_text * 0.10) / max(1, num_jusci)       # 10% Science News
         w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks) # 5% Old Books
+        w_coco = (total_text * 0.05) / max(1, num_coco)         # 5% COCO Image Descriptions
         
-        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan
+        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
         print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 60%)")
-        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 25%)")
+        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
         print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 10%)")
+        print(f" - COCO Descriptions: {num_coco} rows (Sample weight: 5%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
         
         return DataLoader(
