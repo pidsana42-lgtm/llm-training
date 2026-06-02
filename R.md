@@ -57,19 +57,30 @@ git pull origin main
 pip install qwen-vl-utils accelerate
 ```
 
-### 2. สร้างคัมภีร์ข้อมูล Distillation จากครู (Offline Generation)
-สั่งให้ `Typhoon-OCR-7B` วิเคราะห์รูปภาพ 1,000 ภาพแรกเพื่อทำเฉลย (รันรอบเดียวทิ้งไว้):
+### 2. สร้างคัมภีร์ข้อมูล Distillation จากครู (ทำล่วงหน้า 1 ครั้ง)
+สั่งให้ `Typhoon-OCR-7B` วิเคราะห์รูปภาพเพื่อทำเฉลย (รันรอบเดียวทิ้งไว้ข้ามคืน):
 ```bash
 python scripts/create_distillation_dataset.py
 ```
+*(เคล็ดลับ: สามารถใส่ `--test` ต่อท้ายเพื่อทดสอบรันแค่ 4 รูปก่อนได้)*
 
-### 3. รันเทรน 501M ด้วยระบบ Distillation
-หลังจากสร้างเฉลยเสร็จ ให้เริ่มรันโมเดล 501M ต่อได้เลย (ไฟล์ Data Loader จะอ่านไฟล์ JSONL เฉลยให้อัตโนมัติและเกลี่ยน้ำหนักให้ 40%):
+### 3. แผนการเทรน 2 ระยะ (2-Phase Training Strategy)
+เพื่อป้องกันไม่ให้ Loss ระเบิดจากการเทรนภาพและตัวหนังสือพร้อมกันจากศูนย์ เราจะแบ่งการเทรนออกเป็น 2 ระยะ:
+
+#### ระยะที่ 1: "สร้างสมอง" (Text-Only Pre-training)
+ปิดตาทิ้ง แล้วให้โมเดลเสพแต่ Thai Wikipedia อย่างเดียว เพื่อเรียนรู้ไวยากรณ์ภาษาไทยให้แตกฉานก่อน (รันข้ามคืน 1-2 วันจนกว่า Loss จะนิ่ง):
 ```bash
-FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+TRAIN_PHASE="text_only" FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
 ```
 
-### 3. การทดสอบการมองเห็นและเจนคำตอบ (Inference)
+#### ระยะที่ 2: "เปิดตา" (Multimodal Alignment)
+หลังจากสมองพูดภาษาไทยรู้เรื่องแล้ว ให้หยุดการเทรนข้างบน แล้วรันคำสั่งใหม่โดย **ลบคำว่า FORCE_RESET ทิ้ง** และเปลี่ยนโหมดเป็น Multimodal เพื่อให้มันเริ่มดูภาพและอ่านข้อมูล Distillation:
+```bash
+TRAIN_PHASE="multimodal" HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
+```
+*(ในระยะนี้ Data Loader จะโหลดไฟล์ JSONL จากครูมาเป็นหนังสือนำทาง (Weight 40%) ทำให้ตากับสมองเชื่อมกันได้เร็วที่สุด)*
+
+### 4. การทดสอบการมองเห็นและเจนคำตอบ (Inference)
 หลังจากเทรนผ่านไปแล้ว คุณสามารถทดสอบความเร็วของการเจน 512x512 4-Token MTP ได้ด้วยสคริปต์จำลอง:
 ```bash
 python scripts/test_omni.py \
