@@ -21,7 +21,7 @@ class JommarnOmni(nn.Module):
     Combines Jommarn-Tiny (Thinker) with Jommarn-Vision (Encoder).
     Total Parameters: ~16.5M (original) / ~469M (configured)
     """
-    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int, n_kv_head: int = 2, img_size: int = 512) -> None:
+    def __init__(self, n_head: int, n_embed: int, context_length: int, vocab_size: int, N_BLOCKS: int, n_kv_head: int = 2, img_size: int = 512, v_layers: int = 8) -> None:
         super().__init__()
         self.context_length = context_length
         self.N_BLOCKS = N_BLOCKS
@@ -29,7 +29,7 @@ class JommarnOmni(nn.Module):
         self.head_size = n_embed // n_head
         
         # 1. Vision Encoder (Scratch)
-        self.vision_encoder = JommarnVisionEncoder(img_size=img_size, n_head=n_head, n_embed=n_embed)
+        self.vision_encoder = JommarnVisionEncoder(img_size=img_size, n_head=n_head, n_embed=n_embed, n_layers=v_layers)
         
         # 2. Text Thinker
         self.token_embed = nn.Embedding(vocab_size, n_embed)

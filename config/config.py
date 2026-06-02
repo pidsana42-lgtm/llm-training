@@ -5,12 +5,13 @@
 
 # ตัวเลข VOCAB_SIZE ของ Gemma ปกติคือ 256,000 
 # เราจะตั้งค่าเผื่อให้หารด้วย 64 ลงตัวเพื่อประสิทธิภาพ GPU (256000 + padding)
-VOCAB_SIZE = 262144         # ตัวเลขจริงจาก tokenizer.json ของ Gemma-4 (2^18)
+VOCAB_SIZE = 152064         # ปรับให้เข้ากับ Typhoon OCR (หาร 64 ลงตัวเพื่อ L40S)
 CONTEXT_LENGTH = 4096       
 N_EMBED = 768               
 N_HEAD = 12                  
 N_BLOCKS = 22               
 N_KV_HEADS = 2              # 2 KV Heads (GQA 6:1 Ratio)
+V_LAYERS = 12               # เพิ่มจำนวนชั้น (Depth) ของ Vision Encoder ให้ฉลาดขึ้น
 
 # Paths
 TRAIN_PATH = "data/train/pile_train.h5"
@@ -43,6 +44,7 @@ default_config = {
     'train_path': TRAIN_PATH,
     'dev_path': DEV_PATH,
     'tokenizer_path': TOKENIZER_PATH,
+    'v_layers': V_LAYERS,
     't_batch_size': T_BATCH_SIZE,
     't_grad_accum': T_GRAD_ACCUM, # เพิ่มเข้าไปเพื่อให้โค้ดเรียกใช้ได้
     't_context_length': T_CONTEXT_LENGTH,
