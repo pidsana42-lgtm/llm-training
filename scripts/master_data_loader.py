@@ -9,6 +9,49 @@ from transformers import PreTrainedTokenizerFast
 import glob
 import json
 import random
+import numpy as np
+from torch.utils.data.sampler import Sampler
+
+class HugeWeightedRandomSampler(Sampler):
+    """
+    A custom sampler that bypasses torch.multinomial's 2^24 categories limit.
+    It works by first multinomial-sampling the dataset indices based on weights,
+    then randomly sampling within each dataset using numpy (which is very fast).
+    """
+    def __init__(self, dataset_lengths, dataset_weights, num_samples):
+        self.dataset_lengths = dataset_lengths
+        self.dataset_weights = dataset_weights
+        self.num_samples = num_samples
+        
+        total_weight = sum(self.dataset_weights)
+        self.probs = [w / total_weight for w in self.dataset_weights]
+        self.cumulative_lengths = [0] + list(np.cumsum(dataset_lengths))
+        
+    def __iter__(self):
+        # Sample dataset IDs based on probabilities
+        dataset_choices = np.random.choice(
+            len(self.dataset_lengths), 
+            size=self.num_samples, 
+            p=self.probs
+        )
+        
+        # Count occurrences for each dataset to batch sample
+        counts = np.bincount(dataset_choices, minlength=len(self.dataset_lengths))
+        
+        indices = []
+        for i, count in enumerate(counts):
+            if count > 0 and self.dataset_lengths[i] > 0:
+                local_indices = np.random.randint(0, self.dataset_lengths[i], size=count)
+                global_indices = local_indices + self.cumulative_lengths[i]
+                indices.append(global_indices)
+                
+        all_indices = np.concatenate(indices)
+        np.random.shuffle(all_indices)
+        
+        return iter(all_indices.tolist())
+        
+    def __len__(self):
+        return self.num_samples
 
 class JommarnMasterDataset(Dataset):
     """
@@ -548,30 +591,16 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_coco + num_detailed + num_pdf_detailed
         
         # Weight distribution
-        w_wangchan = (total_text * 0.28) / max(1, num_wangchan)
-        w_culturax = (total_text * 0.27) / max(1, num_culturax)
-        w_wiki = (total_text * 0.15) / max(1, num_wiki)
-        w_thaisum = (total_text * 0.05) / max(1, num_thaisum)
-        w_jusci = (total_text * 0.05) / max(1, num_jusci)
-        w_blognone = (total_text * 0.05) / max(1, num_blognone)
-        w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks)
-        w_coco = (total_text * 0.05) / max(1, num_coco)
-        w_detailed = (total_text * 0.02) / max(1, num_detailed)
-        w_pdf_detailed = (total_text * 0.03) / max(1, num_pdf_detailed)
+        dataset_lengths = [
+            num_wiki, num_oldbooks, num_jusci, num_blognone, num_wangchan, 
+            num_culturax, num_thaisum, num_coco, num_detailed, num_pdf_detailed
+        ]
+        dataset_weights = [
+            0.15, 0.05, 0.05, 0.05, 0.28,
+            0.27, 0.05, 0.05, 0.02, 0.03
+        ]
         
-        weights = (
-            [w_wiki] * num_wiki + 
-            [w_oldbooks] * num_oldbooks + 
-            [w_jusci] * num_jusci + 
-            [w_blognone] * num_blognone +
-            [w_wangchan] * num_wangchan + 
-            [w_culturax] * num_culturax +
-            [w_thaisum] * num_thaisum +
-            [w_coco] * num_coco + 
-            [w_detailed] * num_detailed + 
-            [w_pdf_detailed] * num_pdf_detailed
-        )
-        sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
+        sampler = HugeWeightedRandomSampler(dataset_lengths, dataset_weights, num_samples=total_text)
         
         print(f"Text-Only Balanced Sampler Active:")
         print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 28%)")
@@ -642,36 +671,18 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         base_vision_weight = 0.18 # 0.10 + (0.40 / 5)
         distill_weight = 0.0
         
-    w_hw = (total * base_vision_weight) / max(1, num_hw)
-    w_detailed = (total * base_vision_weight) / max(1, num_detailed)
-    w_pdf_detailed = (total * base_vision_weight) / max(1, num_pdf_detailed)
-    w_astrology = (total * base_vision_weight) / max(1, num_astrology)
-    w_coco = (total * base_vision_weight) / max(1, num_coco)
-    w_distill = (total * distill_weight) / max(1, num_distill)
-    w_wiki = (total * 0.02) / max(1, num_wiki)
-    w_wangchan = (total * 0.02) / max(1, num_wangchan) 
-    w_culturax = (total * 0.02) / max(1, num_culturax)
-    w_thaisum = (total * 0.01) / max(1, num_thaisum)
-    w_oldbooks = (total * 0.01) / max(1, num_oldbooks) 
-    w_jusci = (total * 0.01) / max(1, num_jusci)
-    w_blognone = (total * 0.01) / max(1, num_blognone)
+    dataset_lengths = [
+        num_hw, num_wiki, num_oldbooks, num_jusci, num_blognone,
+        num_wangchan, num_culturax, num_thaisum, num_detailed,
+        num_pdf_detailed, num_astrology, num_coco, num_distill
+    ]
+    dataset_weights = [
+        base_vision_weight, 0.02, 0.01, 0.01, 0.01,
+        0.02, 0.02, 0.01, base_vision_weight,
+        base_vision_weight, base_vision_weight, base_vision_weight, distill_weight
+    ]
     
-    weights = (
-        [w_hw] * num_hw + 
-        [w_wiki] * num_wiki + 
-        [w_oldbooks] * num_oldbooks +
-        [w_jusci] * num_jusci +
-        [w_blognone] * num_blognone +
-        [w_wangchan] * num_wangchan +
-        [w_culturax] * num_culturax +
-        [w_thaisum] * num_thaisum +
-        [w_detailed] * num_detailed +
-        [w_pdf_detailed] * num_pdf_detailed +
-        [w_astrology] * num_astrology +
-        [w_coco] * num_coco +
-        [w_distill] * num_distill
-    )
-    sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
+    sampler = HugeWeightedRandomSampler(dataset_lengths, dataset_weights, num_samples=total)
     
     print(f"Balanced Sampler Active:")
     print(f" - Distillation (Teacher Data): {num_distill} rows (Sample weight: {distill_weight*100:.0f}%)")
