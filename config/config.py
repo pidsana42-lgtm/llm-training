@@ -18,9 +18,9 @@ TRAIN_PATH = "data/train/pile_train.h5"
 DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
-# Training parameters (Optimized for L40S 48GB - High Performance)
-T_BATCH_SIZE = 2            # ลดเหลือ 2 เพื่อเพิ่มความปลอดภัยสูงสุดของหน่วยความจำการ์ดจอ (VRAM)
-T_GRAD_ACCUM = 16           # สะสม 16 รอบ เพื่อให้ Effective Batch Size = 32 เท่าเดิม
+# Training parameters (Optimized for A100 80GB - Maximum Performance)
+T_BATCH_SIZE = 8            # A100 80GB รับ Batch=8 ได้สบาย VRAM เหลือเยอะ
+T_GRAD_ACCUM = 8            # สะสม 8 รอบ เพื่อให้ Effective Batch Size = 64 (2x เดิม!)
 T_CONTEXT_LENGTH = 4096     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 50         
@@ -28,7 +28,7 @@ T_EVAL_ITERS = 100
 T_LR_DECAY_STEP = 20000    
 T_LR = 1e-4                 # ลดลงเหลือ 1e-4 เพื่อความเสถียรของโมเดล 501M
 T_LR_DECAYED = 2e-5        
-T_OUT_PATH = "models/jommarn_omni_206m_l40s.pt"
+T_OUT_PATH = "models/jommarn_omni_206m_a100.pt"
 
 # Device
 import torch
