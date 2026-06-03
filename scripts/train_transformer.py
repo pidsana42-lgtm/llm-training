@@ -198,13 +198,13 @@ for step in pbar:
                 'losses': losses
             }, temp_checkpoint)
 
-        # --- HuggingFace Sync (ทุก 200 steps) ---
-        if local_step > 0 and local_step % 200 == 0 and hf_repo:
+        # --- HuggingFace Sync (ทุก 100 steps) ---
+        if local_step > 0 and local_step % 100 == 0 and hf_repo:
             try:
                 from scripts.push_to_hf import push_to_hub
                 push_to_hub(repo_id=hf_repo, model_path=temp_checkpoint)
-            except:
-                pass
+            except Exception as e:
+                print(f"HuggingFace Sync Failed: {e}")
 
     except Exception as e:
         print(f"Error at step {step}: {e}")
