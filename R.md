@@ -81,15 +81,34 @@ TRAIN_PHASE="multimodal" HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python s
 *(ในระยะนี้ Data Loader จะโหลดไฟล์ JSONL จากครูมาเป็นหนังสือนำทาง (Weight 40%) ทำให้ตากับสมองเชื่อมกันได้เร็วที่สุด)*
 
 ### 4. การทดสอบการมองเห็นและเจนคำตอบ (Inference)
-หลังจากเทรนผ่านไปแล้ว คุณสามารถทดสอบความเร็วของการเจน 512x512 4-Token MTP ได้ด้วยสคริปต์จำลอง:
+แนะนำให้ใช้ Jupyter Notebook `test_omni.ipynb` เพื่อหลีกเลี่ยงปัญหาเรื่อง Encoding ภาษาต่างดาวใน Terminal ของ Cloud
+
+---
+
+## 🛠️ การปรับจูนและแก้ปัญหาบน Cloud (Troubleshooting & Tuning)
+
+### 1. การล้างพื้นที่ดิสก์ (Disk Space Management)
+หากใช้ Cloud แล้วพื้นที่เต็ม (เช่น กราฟพุ่งไป 300GB+) เกิดจาก Cache ของ Hugging Face ที่โหลด Dataset และ Model ซ้ำซ้อน ให้รันคำสั่งเหล่านี้บน Terminal:
 ```bash
-python scripts/test_omni.py \
-    --model "models/jommarn_omni_206m_l40s_latest.pt" \
-    --image "path/to/image.jpg" \
-    --img_size 512 \
-    --prompt "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
+# ล้างแคช Dataset และ Model ที่ซ้ำซ้อน (ได้พื้นที่คืนมหาศาล)
+rm -rf ~/.cache/huggingface/datasets/
+rm -rf ~/.cache/huggingface/hub/
+# ลบไฟล์ Checkpoint ระหว่างทางทิ้ง (เก็บไว้แค่ _latest.pt)
+rm -f ~/llm-training/models/*_step_*.pt
 ```
-*(โมเดลจะเริ่มพ่น `<think>` กระบวนการคิดออกมาก่อนตอบ และให้คำตอบที่รวดเร็วกว่าโมเดลปกติ 4 เท่าใน Forward Loop เดียวกัน)*
+
+### 2. การจูนบนการ์ดจอ AMD MI300X (VRAM 192GB)
+สถาปัตยกรรมนี้รองรับทั้ง **Nvidia (CUDA)** และ **AMD (ROCm)** อย่างสมบูรณ์!
+หากคุณเช่า MI300X ที่มี VRAM มหาศาล ให้เข้าไปปรับใน `config/config.py`:
+```python
+T_BATCH_SIZE = 128     # อัดรูป/ข้อความเข้าการ์ดจอทีละ 128 เพื่อใช้ 192GB ให้คุ้มค่า
+T_GRAD_ACCUM = 4       # Effective Batch Size = 512 (Loss นิ่งกริบ!)
+```
+*(คำเตือน: ต้องติดตั้ง PyTorch เวอร์ชัน ROCm จากเว็บ Official เท่านั้น ห้ามรัน pip install torch เฉยๆ)*
+
+### 3. เป้าหมายของการทำ Pre-training (เมื่อไหร่ควรหยุด?)
+*   **เป้าหมาย Loss:** ไม่ใช่ 1.0 (ถ้า 1.0 คือ Overfitting) เป้าหมายที่สมบูรณ์แบบระดับโลกคือ **1.8 - 2.2** 
+*   **พฤติกรรมโมเดล:** เมื่อเทรนจบ Phase 1 โมเดลจะแต่งประโยคภาษาไทยได้เป๊ะ ไวยากรณ์ถูกต้อง 100% ไม่มีคำศัพท์มนุษย์ต่างดาว **แต่มันจะยังไม่ยอมตอบคำถาม (เพราะยังไม่ผ่าน Phase 2: Instruction Tuning)** มันจะแค่พยายามแต่งประโยคต่อให้จบหน้ากระดาษแบบสารานุกรม
 
 ---
 *วิวัฒนาการโดย Antigravity AI - Jommarn-Omni ~501M Engine*
@@ -97,5 +116,4 @@ python scripts/test_omni.py \
 
 pip install -r requirements.txt
 pip install datasets transformers huggingface_hub
-FORCE_RESET=1 HF_REPO_ID="Phonsiri/jommarn-omni-checkpoints" python scripts/train_transformer.py
 export HF_TOKEN="your_hf_token_here"
