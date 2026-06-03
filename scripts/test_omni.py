@@ -12,7 +12,7 @@ import argparse
 import os
 from config.config import default_config as config
 
-def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n_embed=config['n_embed'], n_head=config['n_head'], n_blocks=config['n_blocks'], n_kv_head=config['n_kv_heads'], context_length=config['context_length'], max_new_tokens=300, temperature=0.8, top_p=0.9, repetition_penalty=1.0, img_size=512, v_layers=config.get('v_layers', 12)):
+def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n_embed=config['n_embed'], n_head=config['n_head'], n_blocks=config['n_blocks'], n_kv_head=config['n_kv_heads'], context_length=config['context_length'], max_new_tokens=300, temperature=0.8, top_p=0.9, repetition_penalty=1.2, img_size=512, v_layers=config.get('v_layers', 12)):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -200,6 +200,8 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str, default="รูปภาพนี้คือ", help="Thai prompt")
     parser.add_argument("--max_new_tokens", type=int, default=300, help="Maximum tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature (lower = more focused)")
+    parser.add_argument("--top_p", type=float, default=0.9, help="Top-P (Nucleus) sampling (1.0 = off, 0.9 = confident words only)")
+    parser.add_argument("--repetition_penalty", type=float, default=1.2, help="Penalty for repeating tokens (1.0 = off, >1.0 = penalize)")
     parser.add_argument("--n_kv_head", type=int, default=2, help="Number of KV heads (GQA)")
     parser.add_argument("--img_size", type=int, default=512, help="Image size (default 512)")
 
@@ -210,6 +212,8 @@ if __name__ == "__main__":
         args.prompt, 
         max_new_tokens=args.max_new_tokens, 
         temperature=args.temperature,
+        top_p=args.top_p,
+        repetition_penalty=args.repetition_penalty,
         n_kv_head=args.n_kv_head,
         img_size=args.img_size
     )
