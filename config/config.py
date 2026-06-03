@@ -28,7 +28,7 @@ T_EVAL_ITERS = 100
 T_LR_DECAY_STEP = 20000    
 T_LR = 1e-4                 # ลดลงเหลือ 1e-4 เพื่อความเสถียรของโมเดล 501M
 T_LR_DECAYED = 2e-5        
-T_OUT_PATH = "models/jommarn_omni_206m_a100.pt"
+T_OUT_PATH = "models/jommarn_omni_206m_l40s.pt"
 
 # Device
 import torch
