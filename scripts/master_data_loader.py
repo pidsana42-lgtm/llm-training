@@ -151,6 +151,30 @@ class ThaiCulturaxSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class ThaiSumSource(JommarnMasterDataset):
+    """
+    Thai Text Summarization Dataset (AIAT/Pangpuriye-public_ThaiSum40k)
+    Instruction Tuning for Summarization.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading ThaiSum Dataset...")
+        self.data = load_dataset("AIAT/Pangpuriye-public_ThaiSum40k", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = torch.zeros(3, self.img_size, self.img_size)
+        
+        prompt = f"{item['instruction']}\n\n{item['input']}"
+        target = item["output"]
+        
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 class DetailedOcrSource(JommarnMasterDataset):
     """
     Detailed OCR Source (Phonsiri/handwrite-ocr-detailed)
@@ -501,12 +525,13 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         ds_blognone = BlognoneNewsSource(mode="text_only")
         ds_wangchan = WangchanLionWebSource(mode="text_only")
         ds_culturax = ThaiCulturaxSource(mode="text_only")
+        ds_thaisum = ThaiSumSource(mode="text_only")
         ds_coco_text = CocoThaiDetailedSource(mode="text_only")
         ds_detailed_text = DetailedOcrSource(mode="text_only")
         ds_pdf_detailed_text = PdfOcrDetailedSource(mode="text_only")
         
         master_ds_text = ConcatDataset([
-            ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, 
+            ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, ds_thaisum,
             ds_coco_text, ds_detailed_text, ds_pdf_detailed_text
         ])
         
@@ -516,21 +541,23 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         num_blognone = len(ds_blognone)
         num_wangchan = len(ds_wangchan)
         num_culturax = len(ds_culturax)
+        num_thaisum = len(ds_thaisum)
         num_coco = len(ds_coco_text)
         num_detailed = len(ds_detailed_text)
         num_pdf_detailed = len(ds_pdf_detailed_text)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_coco + num_detailed + num_pdf_detailed
+        total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_coco + num_detailed + num_pdf_detailed
         
         # Weight distribution
-        w_wangchan = (total_text * 0.30) / max(1, num_wangchan)
-        w_culturax = (total_text * 0.30) / max(1, num_culturax)
-        w_wiki = (total_text * 0.15) / max(1, num_wiki)         # 15% Wiki
-        w_jusci = (total_text * 0.05) / max(1, num_jusci)       # 5% Science News
-        w_blognone = (total_text * 0.05) / max(1, num_blognone) # 5% Tech News
-        w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks) # 5% Old Books
-        w_coco = (total_text * 0.05) / max(1, num_coco)         # 5% COCO Image Descriptions
-        w_detailed = (total_text * 0.02) / max(1, num_detailed) # 2% Detailed Handwriting Logic
-        w_pdf_detailed = (total_text * 0.03) / max(1, num_pdf_detailed) # 3% Detailed PDF Logic
+        w_wangchan = (total_text * 0.28) / max(1, num_wangchan)
+        w_culturax = (total_text * 0.27) / max(1, num_culturax)
+        w_wiki = (total_text * 0.15) / max(1, num_wiki)
+        w_thaisum = (total_text * 0.05) / max(1, num_thaisum)
+        w_jusci = (total_text * 0.05) / max(1, num_jusci)
+        w_blognone = (total_text * 0.05) / max(1, num_blognone)
+        w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks)
+        w_coco = (total_text * 0.05) / max(1, num_coco)
+        w_detailed = (total_text * 0.02) / max(1, num_detailed)
+        w_pdf_detailed = (total_text * 0.03) / max(1, num_pdf_detailed)
         
         weights = (
             [w_wiki] * num_wiki + 
@@ -539,6 +566,7 @@ def get_master_loader(batch_size=16, phase="multimodal"):
             [w_blognone] * num_blognone +
             [w_wangchan] * num_wangchan + 
             [w_culturax] * num_culturax +
+            [w_thaisum] * num_thaisum +
             [w_coco] * num_coco + 
             [w_detailed] * num_detailed + 
             [w_pdf_detailed] * num_pdf_detailed
@@ -546,16 +574,16 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 30%)")
-        print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 30%)")
+        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 28%)")
+        print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 27%)")
         print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 15%)")
+        print(f" - ThaiSum (Summarization): {num_thaisum} rows (Sample weight: 5%)")
         print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 5%)")
         print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 5%)")
         print(f" - COCO Descriptions: {num_coco} rows (Sample weight: 5%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
         print(f" - PDF Logic: {num_pdf_detailed} rows (Sample weight: 3%)")
         print(f" - Handwriting Logic: {num_detailed} rows (Sample weight: 2%)")
-        print(f" - PDF Logic: {num_pdf_detailed} rows (Sample weight: 5%)")
         
         return DataLoader(
             master_ds_text, 
@@ -571,7 +599,10 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     ds_wiki = WikiSource()
     ds_oldbooks = ThaiOldBooksSource()
     ds_jusci = JusciWebsiteSource()
+    ds_blognone = BlognoneNewsSource()
     ds_wangchan = WangchanLionWebSource()
+    ds_culturax = ThaiCulturaxSource()
+    ds_thaisum = ThaiSumSource()
     ds_detailed = DetailedOcrSource()
     ds_pdf_detailed = PdfOcrDetailedSource()
     ds_astrology = AstrologyDatasetSource()
@@ -579,19 +610,25 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     ds_distill = DistillationSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_detailed, ds_pdf_detailed, ds_astrology, ds_coco, ds_distill])
+    master_ds = ConcatDataset([
+        ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, ds_thaisum,
+        ds_detailed, ds_pdf_detailed, ds_astrology, ds_coco, ds_distill
+    ])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
     num_oldbooks = len(ds_oldbooks)
     num_jusci = len(ds_jusci)
+    num_blognone = len(ds_blognone)
     num_wangchan = len(ds_wangchan)
+    num_culturax = len(ds_culturax)
+    num_thaisum = len(ds_thaisum)
     num_detailed = len(ds_detailed)
     num_pdf_detailed = len(ds_pdf_detailed)
     num_astrology = len(ds_astrology)
     num_coco = len(ds_coco)
     num_distill = len(ds_distill)
-    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_wangchan + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill
+    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill
     
     # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
     # Dynamic check: If distillation data is not ready, redistribute its weight
@@ -614,9 +651,10 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     w_wiki = (total * 0.02) / max(1, num_wiki)
     w_wangchan = (total * 0.02) / max(1, num_wangchan) 
     w_culturax = (total * 0.02) / max(1, num_culturax)
+    w_thaisum = (total * 0.01) / max(1, num_thaisum)
     w_oldbooks = (total * 0.01) / max(1, num_oldbooks) 
     w_jusci = (total * 0.01) / max(1, num_jusci)
-    w_blognone = (total * 0.02) / max(1, num_blognone)
+    w_blognone = (total * 0.01) / max(1, num_blognone)
     
     weights = (
         [w_hw] * num_hw + 
@@ -626,6 +664,7 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         [w_blognone] * num_blognone +
         [w_wangchan] * num_wangchan +
         [w_culturax] * num_culturax +
+        [w_thaisum] * num_thaisum +
         [w_detailed] * num_detailed +
         [w_pdf_detailed] * num_pdf_detailed +
         [w_astrology] * num_astrology +
@@ -644,7 +683,8 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 2%)")
     print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 2%)")
     print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 2%)")
-    print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 2%)")
+    print(f" - ThaiSum (Summarization): {num_thaisum} rows (Sample weight: 1%)")
+    print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 1%)")
     print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 1%)")
     print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 1%)")
 
