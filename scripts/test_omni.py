@@ -12,7 +12,7 @@ import argparse
 import os
 from config.config import default_config as config
 
-def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n_embed=config['n_embed'], n_head=config['n_head'], n_blocks=config['n_blocks'], n_kv_head=config['n_kv_heads'], context_length=config['context_length'], max_new_tokens=300, temperature=0.8, img_size=512, v_layers=config.get('v_layers', 12)):
+def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n_embed=config['n_embed'], n_head=config['n_head'], n_blocks=config['n_blocks'], n_kv_head=config['n_kv_heads'], context_length=config['context_length'], max_new_tokens=300, temperature=0.8, top_p=0.9, repetition_penalty=1.0, img_size=512, v_layers=config.get('v_layers', 12)):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # 1. Load Tokenizer
@@ -84,7 +84,7 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
     max_new_tokens = max_new_tokens  # from CLI arg
     temperature = temperature        # from CLI arg
     top_k = 50                       # Filter low-probability tokens
-    top_p = 0.9                      # Nucleus sampling for diversity
+    top_p = top_p                    # Nucleus sampling for diversity
     # Use context_length from function arguments
     max_text_ctx = context_length    # max text tokens in one step
 
@@ -110,6 +110,10 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
             
             # --- 1. PREDICT TOKEN 1 (Standard Head) ---
             logits_1 = logits[:, -1, :] / temperature
+
+            if repetition_penalty != 1.0:
+                for t_id in set(generated_ids[0].tolist()):
+                    logits_1[0, t_id] = logits_1[0, t_id] / repetition_penalty if logits_1[0, t_id] > 0 else logits_1[0, t_id] * repetition_penalty
 
             # Top-k sampling for Token 1
             if top_k > 0:
@@ -141,6 +145,11 @@ def test_omni(model_path, image_path, prompt, vocab_size=config['vocab_size'], n
                 h_state = model.mtp_mixers[k](torch.cat([h_state, emb_prev], dim=-1))
                 # Project to vocab
                 logits_k = model.lm_head(h_state).squeeze(1) / temperature
+                
+                if repetition_penalty != 1.0:
+                    current_tokens = generated_ids[0].tolist() + [t[0].item() for t in step_gen_ids]
+                    for t_id in set(current_tokens):
+                        logits_k[0, t_id] = logits_k[0, t_id] / repetition_penalty if logits_k[0, t_id] > 0 else logits_k[0, t_id] * repetition_penalty
                 
                 # Apply Top-k to Token k+2
                 if top_k > 0:
