@@ -554,6 +554,32 @@ class WangchanLionWebSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class EnglishWikiSource(JommarnMasterDataset):
+    """
+    English WikiText Dataset (wikitext-103-v1)
+    Provides basic English structure and grammar.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading English WikiText Dataset...")
+        self.data = load_dataset("wikitext", "wikitext-103-v1", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = torch.zeros(3, self.img_size, self.img_size)
+        
+        prompt = "Read the following English text:"
+        target = item["text"].strip()
+        if not target:
+            target = "This section intentionally left blank."
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 def get_master_loader(batch_size=16, phase="multimodal"):
     """
     Creates a combined loader.
@@ -572,10 +598,11 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         ds_coco_text = CocoThaiDetailedSource(mode="text_only")
         ds_detailed_text = DetailedOcrSource(mode="text_only")
         ds_pdf_detailed_text = PdfOcrDetailedSource(mode="text_only")
+        ds_enwiki = EnglishWikiSource(mode="text_only")
         
         master_ds_text = ConcatDataset([
             ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, ds_thaisum,
-            ds_coco_text, ds_detailed_text, ds_pdf_detailed_text
+            ds_coco_text, ds_detailed_text, ds_pdf_detailed_text, ds_enwiki
         ])
         
         num_wiki = len(ds_wiki)
@@ -588,24 +615,26 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         num_coco = len(ds_coco_text)
         num_detailed = len(ds_detailed_text)
         num_pdf_detailed = len(ds_pdf_detailed_text)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_coco + num_detailed + num_pdf_detailed
+        num_enwiki = len(ds_enwiki)
+        total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_coco + num_detailed + num_pdf_detailed + num_enwiki
         
         # Weight distribution
         dataset_lengths = [
             num_wiki, num_oldbooks, num_jusci, num_blognone, num_wangchan, 
-            num_culturax, num_thaisum, num_coco, num_detailed, num_pdf_detailed
+            num_culturax, num_thaisum, num_coco, num_detailed, num_pdf_detailed, num_enwiki
         ]
         dataset_weights = [
-            0.15, 0.05, 0.05, 0.05, 0.28,
-            0.27, 0.05, 0.05, 0.02, 0.03
+            0.15, 0.05, 0.05, 0.05, 0.25,
+            0.25, 0.05, 0.05, 0.02, 0.03, 0.05
         ]
         
         sampler = HugeWeightedRandomSampler(dataset_lengths, dataset_weights, num_samples=total_text)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 28%)")
-        print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 27%)")
+        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 25%)")
+        print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 25%)")
         print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 15%)")
+        print(f" - English WikiText: {num_enwiki} rows (Sample weight: 5%)")
         print(f" - ThaiSum (Summarization): {num_thaisum} rows (Sample weight: 5%)")
         print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 5%)")
         print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 5%)")
@@ -637,11 +666,12 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     ds_astrology = AstrologyDatasetSource()
     ds_coco = CocoThaiDetailedSource()
     ds_distill = DistillationSource()
+    ds_enwiki = EnglishWikiSource()
     
     # Combined dataset
     master_ds = ConcatDataset([
         ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, ds_thaisum,
-        ds_detailed, ds_pdf_detailed, ds_astrology, ds_coco, ds_distill
+        ds_detailed, ds_pdf_detailed, ds_astrology, ds_coco, ds_distill, ds_enwiki
     ])
     
     num_hw = len(ds_hw)
@@ -657,7 +687,8 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     num_astrology = len(ds_astrology)
     num_coco = len(ds_coco)
     num_distill = len(ds_distill)
-    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill
+    num_enwiki = len(ds_enwiki)
+    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_thaisum + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill + num_enwiki
     
     # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
     # Dynamic check: If distillation data is not ready, redistribute its weight
@@ -674,12 +705,12 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     dataset_lengths = [
         num_hw, num_wiki, num_oldbooks, num_jusci, num_blognone,
         num_wangchan, num_culturax, num_thaisum, num_detailed,
-        num_pdf_detailed, num_astrology, num_coco, num_distill
+        num_pdf_detailed, num_astrology, num_coco, num_distill, num_enwiki
     ]
     dataset_weights = [
-        base_vision_weight, 0.02, 0.01, 0.01, 0.01,
+        base_vision_weight, 0.01, 0.01, 0.01, 0.01,
         0.02, 0.02, 0.01, base_vision_weight,
-        base_vision_weight, base_vision_weight, base_vision_weight, distill_weight
+        base_vision_weight, base_vision_weight, base_vision_weight, distill_weight, 0.01
     ]
     
     sampler = HugeWeightedRandomSampler(dataset_lengths, dataset_weights, num_samples=total)
@@ -691,7 +722,8 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     print(f" - Astrology Layout: {num_astrology} rows (Sample weight: {base_vision_weight*100:.0f}%)")
     print(f" - COCO General: {num_coco} rows (Sample weight: {base_vision_weight*100:.0f}%)")
     print(f" - Handwriting: {num_hw} rows (Sample weight: {base_vision_weight*100:.0f}%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 2%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 1%)")
+    print(f" - English WikiText: {num_enwiki} rows (Sample weight: 1%)")
     print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 2%)")
     print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 2%)")
     print(f" - ThaiSum (Summarization): {num_thaisum} rows (Sample weight: 1%)")
