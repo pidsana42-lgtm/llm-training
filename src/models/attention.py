@@ -94,20 +94,18 @@ class MultiHeadAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
         
-        # ✅ Modern SDPA Optimization (Forced-disable FlashAttention to prevent cloud crashes)
-        # Allows only memory-efficient and math backends
-        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=True):
-            if is_local:
-                # Custom causal mask with sliding window
-                mask = self.tril[:T, :T]
-                local_mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=-self.window_size)
-                attn_mask = (mask * local_mask).bool().unsqueeze(0).unsqueeze(1) # shape (1, 1, T, T)
-                
-                # Run SDPA with custom local mask
-                out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
-            else:
-                # Global Causal Attention
-                out = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0)
+        # ✅ Modern SDPA Optimization (Auto-selects optimal backend for CUDA / ROCm)
+        if is_local:
+            # Custom causal mask with sliding window
+            mask = self.tril[:T, :T]
+            local_mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=-self.window_size)
+            attn_mask = (mask * local_mask).bool().unsqueeze(0).unsqueeze(1) # shape (1, 1, T, T)
+            
+            # Run SDPA with custom local mask
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
+        else:
+            # Global Causal Attention
+            out = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0)
         
         # Reshape back: (B, T, C)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
