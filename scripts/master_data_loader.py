@@ -522,12 +522,23 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     total = num_hw + num_wiki + num_oldbooks + num_jusci + num_wangchan + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill
     
     # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
-    w_hw = (total * 0.10) / max(1, num_hw)
-    w_detailed = (total * 0.10) / max(1, num_detailed)
-    w_pdf_detailed = (total * 0.10) / max(1, num_pdf_detailed)
-    w_astrology = (total * 0.10) / max(1, num_astrology)
-    w_coco = (total * 0.10) / max(1, num_coco)
-    w_distill = (total * 0.40) / max(1, num_distill) # 40% for Warmup Distillation!
+    # Dynamic check: If distillation data is not ready, redistribute its weight
+    has_distill = len(getattr(ds_distill, 'items', [])) > 0
+    
+    if has_distill:
+        base_vision_weight = 0.10
+        distill_weight = 0.40
+    else:
+        print("⚠️ No Distillation data found. Redistributing its 40% weight to other vision datasets.")
+        base_vision_weight = 0.18 # 0.10 + (0.40 / 5)
+        distill_weight = 0.0
+        
+    w_hw = (total * base_vision_weight) / max(1, num_hw)
+    w_detailed = (total * base_vision_weight) / max(1, num_detailed)
+    w_pdf_detailed = (total * base_vision_weight) / max(1, num_pdf_detailed)
+    w_astrology = (total * base_vision_weight) / max(1, num_astrology)
+    w_coco = (total * base_vision_weight) / max(1, num_coco)
+    w_distill = (total * distill_weight) / max(1, num_distill)
     w_wiki = (total * 0.05) / max(1, num_wiki)
     w_wangchan = (total * 0.03) / max(1, num_wangchan) 
     w_oldbooks = (total * 0.01) / max(1, num_oldbooks) 
