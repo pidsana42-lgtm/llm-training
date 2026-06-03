@@ -19,8 +19,8 @@ DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
 # Training parameters (Optimized for AMD MI300X 192GB - Maximum Performance)
-T_BATCH_SIZE = 16           # ลดลงเหลือ 16 (ปลอดภัย 100% ไม่ OOM แน่นอนสำหรับ 4096 Context Length)
-T_GRAD_ACCUM = 32           # สะสม 32 รอบ เพื่อรักษา Effective Batch Size ให้เป็น 512 เท่าเดิม
+T_BATCH_SIZE = 32           # ขยับเป็น 32 เพื่อรีดเร้นพลัง VRAM (น่าจะกินประมาณ 80-90%)
+T_GRAD_ACCUM = 16           # สะสม 16 รอบ เพื่อรักษา Effective Batch Size ให้เป็น 512 เท่าเดิม
 T_CONTEXT_LENGTH = 4096     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 50         
