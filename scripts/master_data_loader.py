@@ -101,6 +101,56 @@ class AppenOCRSource(JommarnMasterDataset):
         tokens = self.tokenize("ตัวอย่างข้อความจากเอกสาร") 
         return img, tokens, tokens
 
+class BlognoneNewsSource(JommarnMasterDataset):
+    """
+    Blognone Tech News Dataset (pythainlp/blognone_news)
+    Text-only IT News.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Blognone News Dataset...")
+        self.data = load_dataset("pythainlp/blognone_news", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = torch.zeros(3, self.img_size, self.img_size)
+        
+        task = random.choice(["ข่าวไอที", "รายงานข่าวเทคโนโลยี", "สรุปข่าว Blognone", "ข่าวล่าสุด"])
+        prompt = task
+        target = item["txt"]
+        
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
+class ThaiCulturaxSource(JommarnMasterDataset):
+    """
+    Thai CulturaX Clean Dataset (pythainlp/thai-culturax-clean-dataset)
+    Massive Web Text Corpus (11.2M rows).
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Thai CulturaX Dataset...")
+        self.data = load_dataset("pythainlp/thai-culturax-clean-dataset", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        img = torch.zeros(3, self.img_size, self.img_size)
+        
+        task = random.choice(["อ่านบทความ", "ข้อความจากเว็บ", "เอกสารภาษาไทย", "ข้อมูลอินเทอร์เน็ต"])
+        prompt = task
+        target = item["text"]
+        
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
 class DetailedOcrSource(JommarnMasterDataset):
     """
     Detailed OCR Source (Phonsiri/handwrite-ocr-detailed)
@@ -448,41 +498,63 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         ds_wiki = WikiSource(mode="text_only")
         ds_oldbooks = ThaiOldBooksSource(mode="text_only")
         ds_jusci = JusciWebsiteSource(mode="text_only")
+        ds_blognone = BlognoneNewsSource(mode="text_only")
         ds_wangchan = WangchanLionWebSource(mode="text_only")
+        ds_culturax = ThaiCulturaxSource(mode="text_only")
         ds_coco_text = CocoThaiDetailedSource(mode="text_only")
         ds_detailed_text = DetailedOcrSource(mode="text_only")
         ds_pdf_detailed_text = PdfOcrDetailedSource(mode="text_only")
         
-        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text, ds_detailed_text, ds_pdf_detailed_text])
+        master_ds_text = ConcatDataset([
+            ds_wiki, ds_oldbooks, ds_jusci, ds_blognone, ds_wangchan, ds_culturax, 
+            ds_coco_text, ds_detailed_text, ds_pdf_detailed_text
+        ])
         
         num_wiki = len(ds_wiki)
         num_oldbooks = len(ds_oldbooks)
         num_jusci = len(ds_jusci)
+        num_blognone = len(ds_blognone)
         num_wangchan = len(ds_wangchan)
+        num_culturax = len(ds_culturax)
         num_coco = len(ds_coco_text)
         num_detailed = len(ds_detailed_text)
         num_pdf_detailed = len(ds_pdf_detailed_text)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco + num_detailed + num_pdf_detailed
+        total_text = num_wiki + num_oldbooks + num_jusci + num_blognone + num_wangchan + num_culturax + num_coco + num_detailed + num_pdf_detailed
         
-        # Weight distribution: WangchanLION has 19.8M rows (Web Text)
-        w_wangchan = (total_text * 0.50) / max(1, num_wangchan) # 50% Web Text
-        w_wiki = (total_text * 0.20) / max(1, num_wiki)         # 20% Wiki
-        w_jusci = (total_text * 0.10) / max(1, num_jusci)       # 10% Science News
+        # Weight distribution
+        w_wangchan = (total_text * 0.30) / max(1, num_wangchan)
+        w_culturax = (total_text * 0.30) / max(1, num_culturax)
+        w_wiki = (total_text * 0.15) / max(1, num_wiki)         # 15% Wiki
+        w_jusci = (total_text * 0.05) / max(1, num_jusci)       # 5% Science News
+        w_blognone = (total_text * 0.05) / max(1, num_blognone) # 5% Tech News
         w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks) # 5% Old Books
         w_coco = (total_text * 0.05) / max(1, num_coco)         # 5% COCO Image Descriptions
-        w_detailed = (total_text * 0.05) / max(1, num_detailed) # 5% Detailed Handwriting Logic
-        w_pdf_detailed = (total_text * 0.05) / max(1, num_pdf_detailed) # 5% Detailed PDF Logic
+        w_detailed = (total_text * 0.02) / max(1, num_detailed) # 2% Detailed Handwriting Logic
+        w_pdf_detailed = (total_text * 0.03) / max(1, num_pdf_detailed) # 3% Detailed PDF Logic
         
-        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco + [w_detailed] * num_detailed + [w_pdf_detailed] * num_pdf_detailed
+        weights = (
+            [w_wiki] * num_wiki + 
+            [w_oldbooks] * num_oldbooks + 
+            [w_jusci] * num_jusci + 
+            [w_blognone] * num_blognone +
+            [w_wangchan] * num_wangchan + 
+            [w_culturax] * num_culturax +
+            [w_coco] * num_coco + 
+            [w_detailed] * num_detailed + 
+            [w_pdf_detailed] * num_pdf_detailed
+        )
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 50%)")
-        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
-        print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 10%)")
+        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 30%)")
+        print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 30%)")
+        print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 15%)")
+        print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 5%)")
+        print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 5%)")
         print(f" - COCO Descriptions: {num_coco} rows (Sample weight: 5%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
-        print(f" - Handwriting Logic: {num_detailed} rows (Sample weight: 5%)")
+        print(f" - PDF Logic: {num_pdf_detailed} rows (Sample weight: 3%)")
+        print(f" - Handwriting Logic: {num_detailed} rows (Sample weight: 2%)")
         print(f" - PDF Logic: {num_pdf_detailed} rows (Sample weight: 5%)")
         
         return DataLoader(
@@ -539,17 +611,21 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     w_astrology = (total * base_vision_weight) / max(1, num_astrology)
     w_coco = (total * base_vision_weight) / max(1, num_coco)
     w_distill = (total * distill_weight) / max(1, num_distill)
-    w_wiki = (total * 0.05) / max(1, num_wiki)
-    w_wangchan = (total * 0.03) / max(1, num_wangchan) 
+    w_wiki = (total * 0.02) / max(1, num_wiki)
+    w_wangchan = (total * 0.02) / max(1, num_wangchan) 
+    w_culturax = (total * 0.02) / max(1, num_culturax)
     w_oldbooks = (total * 0.01) / max(1, num_oldbooks) 
-    w_jusci = (total * 0.01) / max(1, num_jusci)       
+    w_jusci = (total * 0.01) / max(1, num_jusci)
+    w_blognone = (total * 0.02) / max(1, num_blognone)
     
     weights = (
         [w_hw] * num_hw + 
         [w_wiki] * num_wiki + 
         [w_oldbooks] * num_oldbooks +
         [w_jusci] * num_jusci +
+        [w_blognone] * num_blognone +
         [w_wangchan] * num_wangchan +
+        [w_culturax] * num_culturax +
         [w_detailed] * num_detailed +
         [w_pdf_detailed] * num_pdf_detailed +
         [w_astrology] * num_astrology +
@@ -559,14 +635,16 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
     
     print(f"Balanced Sampler Active:")
-    print(f" - Distillation (Teacher Data): {num_distill} rows (Sample weight: 40%)")
-    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 10%)")
-    print(f" - PDF OCR: {num_pdf_detailed} rows (Sample weight: 10%)")
-    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 10%)")
-    print(f" - COCO General: {num_coco} rows (Sample weight: 10%)")
-    print(f" - Handwriting: {num_hw} rows (Sample weight: 10%)")
-    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 5%)")
-    print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 3%)")
+    print(f" - Distillation (Teacher Data): {num_distill} rows (Sample weight: {distill_weight*100:.0f}%)")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: {base_vision_weight*100:.0f}%)")
+    print(f" - PDF OCR: {num_pdf_detailed} rows (Sample weight: {base_vision_weight*100:.0f}%)")
+    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: {base_vision_weight*100:.0f}%)")
+    print(f" - COCO General: {num_coco} rows (Sample weight: {base_vision_weight*100:.0f}%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: {base_vision_weight*100:.0f}%)")
+    print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 2%)")
+    print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 2%)")
+    print(f" - Thai CulturaX: {num_culturax} rows (Sample weight: 2%)")
+    print(f" - Blognone Tech News: {num_blognone} rows (Sample weight: 2%)")
     print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 1%)")
     print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 1%)")
 
