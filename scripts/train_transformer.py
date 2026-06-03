@@ -171,7 +171,21 @@ for step in pbar:
 
         # Checkpoints & Hub Sync
         if step > 0 and step % config['t_eval_steps'] == 0:
-            torch.save(inner_model.state_dict(), config['t_out_path'].replace(".pt", f"_step_{step}.pt"))
+            step_path = config['t_out_path'].replace(".pt", f"_step_{step}.pt")
+            torch.save(inner_model.state_dict(), step_path)
+            
+            # Cleanup: Keep only the last 2 step checkpoints to save disk space
+            import glob
+            checkpoint_dir = os.path.dirname(config['t_out_path']) or "."
+            base_name = os.path.basename(config['t_out_path']).replace(".pt", "")
+            saved_steps = sorted(glob.glob(os.path.join(checkpoint_dir, f"{base_name}_step_*.pt")), key=os.path.getmtime)
+            
+            while len(saved_steps) > 2:
+                oldest = saved_steps.pop(0)
+                try:
+                    os.remove(oldest)
+                except OSError:
+                    pass
             
         # --- Checkpoint Save (ทุก 50 steps ลงดิสก์เครื่อง Cloud) ---
         if local_step > 0 and local_step % 50 == 0:
