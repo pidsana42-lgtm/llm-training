@@ -18,9 +18,9 @@ TRAIN_PATH = "data/train/pile_train.h5"
 DEV_PATH = "data/val/pile_dev.h5"
 TOKENIZER_PATH = "tokenizer.json" # ไฟล์ที่ดึงมาจาก Gemma-4
 
-# Training parameters (Optimized for A100 80GB - Maximum Performance)
-T_BATCH_SIZE = 8            # A100 80GB รับ Batch=8 ได้สบาย VRAM เหลือเยอะ
-T_GRAD_ACCUM = 8            # สะสม 8 รอบ เพื่อให้ Effective Batch Size = 64 (2x เดิม!)
+# Training parameters (Optimized for AMD MI300X 192GB - Maximum Performance)
+T_BATCH_SIZE = 128          # MI300X 192GB รับ Batch=128 ได้สบายเพื่อดัน GPU Utilization ให้ถึง 100%
+T_GRAD_ACCUM = 4            # สะสม 4 รอบ เพื่อให้ Effective Batch Size = 512
 T_CONTEXT_LENGTH = 4096     
 T_TRAIN_STEPS = 100000     
 T_EVAL_STEPS = 50         
