@@ -158,6 +158,60 @@ class DetailedOcrSource(JommarnMasterDataset):
         tokens = self.tokenize(text_format)
         return img, tokens, tokens
 
+class PdfOcrDetailedSource(JommarnMasterDataset):
+    """
+    Detailed OCR Source for PDFs (Phonsiri/pdf-ocr-detailed)
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        print("Loading Phonsiri/pdf-ocr-detailed Dataset...")
+        self.data = load_dataset("Phonsiri/pdf-ocr-detailed", split="train")
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        
+        is_text_only = getattr(self, 'mode', 'multimodal') == 'text_only'
+        if is_text_only:
+            img = torch.zeros(3, self.img_size, self.img_size)
+        else:
+            try:
+                img = self.transform(item["image"].convert("RGB"))
+            except Exception:
+                img = torch.zeros(3, self.img_size, self.img_size)
+        
+        if is_text_only:
+            task = random.choice(["caption_th", "caption_en", "think_only"])
+        else:
+            task = random.choice(["ocr_only", "caption_th", "caption_en", "thinking_ocr"])
+        
+        if task == "ocr_only":
+            prompt = "จงอ่านข้อความทั้งหมดที่ปรากฏอยู่ในภาพหรือเอกสารนี้"
+            target = item["ocr_text"]
+        elif task == "caption_th":
+            prompt = "จงอธิบายรายละเอียดของเอกสารนี้อย่างละเอียด"
+            target = item["detailed_caption_thai"]
+        elif task == "caption_en":
+            prompt = "Describe the details of this document in English."
+            target = item["detailed_caption_en"]
+        elif task == "think_only":
+            prompt = "จงวิเคราะห์โครงสร้างของเอกสารนี้ทีละขั้นตอน"
+            target = f"<think>\n{item.get('think_process', '')}\n</think>\n\nสรุป: {item.get('detailed_caption_thai', '')}"
+        else: # thinking_ocr
+            prompt = "จงวิเคราะห์ภาพและถอดข้อความภาษาไทยออกมาทีละขั้นตอน"
+            target = (
+                f"<think>\n{item.get('think_process', '')}\n</think>\n\n"
+                f"**ข้อความที่ถอดได้:**\n{item.get('ocr_text', '')}\n\n"
+                f"**คำบรรยายภาพ:**\n{item.get('detailed_caption_thai', '')}"
+            )
+            
+        text_format = f"ผู้ใช้: {prompt}\n\nผู้ช่วย: {target}"
+        tokens = self.tokenize(text_format)
+        return img, tokens, tokens
+
+
 class AstrologyDatasetSource(JommarnMasterDataset):
     """
     Astrology & Document Layout Dataset (Phonsiri/astrology-dataset-clean)
@@ -397,8 +451,9 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         ds_wangchan = WangchanLionWebSource(mode="text_only")
         ds_coco_text = CocoThaiDetailedSource(mode="text_only")
         ds_detailed_text = DetailedOcrSource(mode="text_only")
+        ds_pdf_detailed_text = PdfOcrDetailedSource(mode="text_only")
         
-        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text, ds_detailed_text])
+        master_ds_text = ConcatDataset([ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_coco_text, ds_detailed_text, ds_pdf_detailed_text])
         
         num_wiki = len(ds_wiki)
         num_oldbooks = len(ds_oldbooks)
@@ -406,26 +461,29 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         num_wangchan = len(ds_wangchan)
         num_coco = len(ds_coco_text)
         num_detailed = len(ds_detailed_text)
-        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco + num_detailed
+        num_pdf_detailed = len(ds_pdf_detailed_text)
+        total_text = num_wiki + num_oldbooks + num_jusci + num_wangchan + num_coco + num_detailed + num_pdf_detailed
         
         # Weight distribution: WangchanLION has 19.8M rows (Web Text)
-        w_wangchan = (total_text * 0.55) / max(1, num_wangchan) # 55% Web Text
+        w_wangchan = (total_text * 0.50) / max(1, num_wangchan) # 50% Web Text
         w_wiki = (total_text * 0.20) / max(1, num_wiki)         # 20% Wiki
         w_jusci = (total_text * 0.10) / max(1, num_jusci)       # 10% Science News
         w_oldbooks = (total_text * 0.05) / max(1, num_oldbooks) # 5% Old Books
         w_coco = (total_text * 0.05) / max(1, num_coco)         # 5% COCO Image Descriptions
         w_detailed = (total_text * 0.05) / max(1, num_detailed) # 5% Detailed Handwriting Logic
+        w_pdf_detailed = (total_text * 0.05) / max(1, num_pdf_detailed) # 5% Detailed PDF Logic
         
-        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco + [w_detailed] * num_detailed
+        weights = [w_wiki] * num_wiki + [w_oldbooks] * num_oldbooks + [w_jusci] * num_jusci + [w_wangchan] * num_wangchan + [w_coco] * num_coco + [w_detailed] * num_detailed + [w_pdf_detailed] * num_pdf_detailed
         sampler = torch.utils.data.WeightedRandomSampler(weights, num_samples=total_text, replacement=True)
         
         print(f"Text-Only Balanced Sampler Active:")
-        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 55%)")
+        print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 50%)")
         print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 20%)")
         print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 10%)")
         print(f" - COCO Descriptions: {num_coco} rows (Sample weight: 5%)")
         print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 5%)")
-        print(f" - Handwriting Logic (No OCR): {num_detailed} rows (Sample weight: 5%)")
+        print(f" - Handwriting Logic: {num_detailed} rows (Sample weight: 5%)")
+        print(f" - PDF Logic: {num_pdf_detailed} rows (Sample weight: 5%)")
         
         return DataLoader(
             master_ds_text, 
@@ -443,12 +501,13 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     ds_jusci = JusciWebsiteSource()
     ds_wangchan = WangchanLionWebSource()
     ds_detailed = DetailedOcrSource()
+    ds_pdf_detailed = PdfOcrDetailedSource()
     ds_astrology = AstrologyDatasetSource()
     ds_coco = CocoThaiDetailedSource()
     ds_distill = DistillationSource()
     
     # Combined dataset
-    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_detailed, ds_astrology, ds_coco, ds_distill])
+    master_ds = ConcatDataset([ds_hw, ds_wiki, ds_oldbooks, ds_jusci, ds_wangchan, ds_detailed, ds_pdf_detailed, ds_astrology, ds_coco, ds_distill])
     
     num_hw = len(ds_hw)
     num_wiki = len(ds_wiki)
@@ -456,21 +515,23 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     num_jusci = len(ds_jusci)
     num_wangchan = len(ds_wangchan)
     num_detailed = len(ds_detailed)
+    num_pdf_detailed = len(ds_pdf_detailed)
     num_astrology = len(ds_astrology)
     num_coco = len(ds_coco)
     num_distill = len(ds_distill)
-    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_wangchan + num_detailed + num_astrology + num_coco + num_distill
+    total = num_hw + num_wiki + num_oldbooks + num_jusci + num_wangchan + num_detailed + num_pdf_detailed + num_astrology + num_coco + num_distill
     
     # Weight Distribution (Distillation takes 40% of the batches to stabilize learning fast)
-    w_hw = (total * 0.12) / max(1, num_hw)
-    w_wiki = (total * 0.05) / max(1, num_wiki)
-    w_wangchan = (total * 0.05) / max(1, num_wangchan) # 5% Web Text
-    w_oldbooks = (total * 0.01) / max(1, num_oldbooks) # 1% for Old Books
-    w_jusci = (total * 0.01) / max(1, num_jusci)       # 1% for Science News
-    w_detailed = (total * 0.12) / max(1, num_detailed)
-    w_astrology = (total * 0.12) / max(1, num_astrology)
-    w_coco = (total * 0.12) / max(1, num_coco)
+    w_hw = (total * 0.10) / max(1, num_hw)
+    w_detailed = (total * 0.10) / max(1, num_detailed)
+    w_pdf_detailed = (total * 0.10) / max(1, num_pdf_detailed)
+    w_astrology = (total * 0.10) / max(1, num_astrology)
+    w_coco = (total * 0.10) / max(1, num_coco)
     w_distill = (total * 0.40) / max(1, num_distill) # 40% for Warmup Distillation!
+    w_wiki = (total * 0.05) / max(1, num_wiki)
+    w_wangchan = (total * 0.03) / max(1, num_wangchan) 
+    w_oldbooks = (total * 0.01) / max(1, num_oldbooks) 
+    w_jusci = (total * 0.01) / max(1, num_jusci)       
     
     weights = (
         [w_hw] * num_hw + 
@@ -479,6 +540,7 @@ def get_master_loader(batch_size=16, phase="multimodal"):
         [w_jusci] * num_jusci +
         [w_wangchan] * num_wangchan +
         [w_detailed] * num_detailed +
+        [w_pdf_detailed] * num_pdf_detailed +
         [w_astrology] * num_astrology +
         [w_coco] * num_coco +
         [w_distill] * num_distill
@@ -487,12 +549,13 @@ def get_master_loader(batch_size=16, phase="multimodal"):
     
     print(f"Balanced Sampler Active:")
     print(f" - Distillation (Teacher Data): {num_distill} rows (Sample weight: 40%)")
-    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 12%)")
-    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 12%)")
-    print(f" - COCO General: {num_coco} rows (Sample weight: 12%)")
-    print(f" - Handwriting: {num_hw} rows (Sample weight: 12%)")
+    print(f" - Detailed OCR: {num_detailed} rows (Sample weight: 10%)")
+    print(f" - PDF OCR: {num_pdf_detailed} rows (Sample weight: 10%)")
+    print(f" - Astrology Layout: {num_astrology} rows (Sample weight: 10%)")
+    print(f" - COCO General: {num_coco} rows (Sample weight: 10%)")
+    print(f" - Handwriting: {num_hw} rows (Sample weight: 10%)")
     print(f" - Thai Wiki: {num_wiki} rows (Sample weight: 5%)")
-    print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 5%)")
+    print(f" - WangchanLION-Web: {num_wangchan} rows (Sample weight: 3%)")
     print(f" - Jusci Science News: {num_jusci} rows (Sample weight: 1%)")
     print(f" - Thai Old Books: {num_oldbooks} rows (Sample weight: 1%)")
 
