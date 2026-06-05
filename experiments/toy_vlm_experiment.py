@@ -82,47 +82,39 @@ print(f"Y_tokens shape: {Y_tokens.shape}")
 # %% [markdown]
 # ## 4. สร้าง Toy VLM
 # %%
-class TinyVisionEncoder(nn.Module):
-    def __init__(self, d_model):
+class EncoderFreePatching(nn.Module):
+    def __init__(self, d_model, patch_size=16):
         super().__init__()
-        # 1. Global Stream (มองภาพรวม): ใช้ตาข่ายห่างๆ (stride=16)
-        self.global_conv = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=16, stride=16), 
-            nn.Flatten(2)
-        )
-        # 2. Local Stream (เพ่งรายละเอียด): ใช้ตาข่ายถี่ขึ้น (stride=8)
-        self.local_conv = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=8, stride=8), 
-            nn.Flatten(2)
-        )
-        # วุ้นแปลภาษา (VL-Projector)
-        self.proj = nn.Linear(16, d_model)
+        self.patch_size = patch_size
+        # 🚫 ไม่มี Convolution 🚫 ไม่มี Encoder หนาๆ
+        # เอาพิกเซลดิบๆ 16x16 pixels * 3 สี = 768 ค่า โยนเข้าสมอง LLM เลย
+        self.raw_pixel_proj = nn.Linear(3 * patch_size * patch_size, d_model)
         
     def forward(self, x):
-        # x คือภาพต้นฉบับขนาด [Batch, 3, 64, 128]
-        import torch.nn.functional as F
+        # x คือภาพต้นฉบับขนาด [Batch, 3, H=64, W=128]
+        B, C, H, W = x.shape
+        P = self.patch_size
         
-        # --- Global Pathway ---
-        # ย่อภาพลงครึ่งนึงเหลือ 32x64 เพื่อดูเค้าโครงรวม
-        x_global = F.interpolate(x, size=(32, 64), mode='bilinear', align_corners=False)
-        feat_global = self.global_conv(x_global) # ได้ 8 ชิ้น (2x4)
+        # 1. หั่นภาพเป็นชิ้นๆ (Patching) โดยไม่ใช้ Convolution (ใช้แค่การจัดเรียง Array)
+        # แปลง [B, 3, 64, 128] -> [B, 3, 4, 16, 8, 16]
+        patches = x.view(B, C, H // P, P, W // P, P)
         
-        # --- Local Pathway ---
-        # ใช้ภาพความละเอียดเต็ม 64x128 เพื่อเพ่งตัวหนังสือ
-        feat_local = self.local_conv(x) # ได้ 128 ชิ้น (8x16)
+        # 2. จัดเรียงใหม่ให้เป็นลำดับชิ้นภาพ
+        # -> [B, แถว, คอลัมน์, สี, P, P] -> [B, 4, 8, 3, 16, 16]
+        patches = patches.permute(0, 2, 4, 1, 3, 5).contiguous()
         
-        # --- Fusion (ประกอบร่าง) ---
-        import torch
-        # เอาชิ้นส่วน Global กับ Local มาต่อกันเป็นสายพานยาว (8 + 128 = 136 ชิ้น)
-        features = torch.cat([feat_global, feat_local], dim=2) 
+        # 3. ทุบให้แบนราบ (Flatten)
+        # -> [B, 32 ชิ้น, 768 ค่าพิกเซล]
+        patches = patches.view(B, -1, C * P * P)
         
-        features = features.transpose(1, 2)
-        return self.proj(features)
+        # 4. วุ้นแปลภาษา: โยนพิกเซลดิบ 768 ค่า เข้า LLM โดยตรงเลย! (Encoder-free!)
+        return self.raw_pixel_proj(patches)
+
 
 class ToyVLM(nn.Module):
     def __init__(self, vocab_size, d_model=128, num_layers=2, n_heads=4):
         super().__init__()
-        self.vision_encoder = TinyVisionEncoder(d_model)
+        self.vision_encoder = EncoderFreePatching(d_model)
         self.word_embedding = nn.Embedding(vocab_size, d_model)
         self.pos_embedding = nn.Embedding(600, d_model) # เพิ่มสมองให้จำตำแหน่งได้ 600 ตัวอักษร
         
